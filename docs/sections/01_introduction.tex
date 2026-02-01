@@ -1,0 +1,63 @@
+\chapter{Introduction}
+\label{chap:introduction}
+
+\section{Motivation}
+
+Airport operations face increasing complexity due to growing air traffic volumes, resource constraints, and operational uncertainties. Gate assignment—the problem of allocating arriving aircraft to terminal gates—is a critical scheduling task that affects passenger experience, airline efficiency, and airport throughput. 
+
+Traditional approaches to gate assignment often rely on deterministic optimization or heuristic rules. However, real-world operations involve significant stochastic elements: uncertain arrival times due to weather and air traffic control delays, variable turnaround service times, and unpredictable disruptions. These uncertainties motivate the use of stochastic sequential decision-making frameworks.
+
+\section{Problem Statement}
+
+We address the following research question:
+
+\begin{quote}
+	\textit{How can we automatically construct effective state representations for Approximate Dynamic Programming in stochastic airport gate assignment, and how do learned representations compare to handcrafted domain features in terms of approximation quality, interpretability, and scalability?}
+\end{quote}
+
+\section{Approach}
+
+Our methodology consists of the following stages:
+
+\begin{enumerate}
+	\item \textbf{MDP Formulation}: Define the gate assignment problem as a discrete-time, finite-horizon MDP with explicit state, action, transition, and reward components.
+	
+	\item \textbf{Trajectory Generation}: Simulate episodes under simple baseline policies (random assignment, greedy assignment) to collect state-transition data.
+	
+	\item \textbf{Graph Construction}: Build a weighted state-transition graph from observed trajectories, where nodes represent states and edge weights reflect empirical transition probabilities.
+	
+	\item \textbf{Representation Learning}: Construct basis functions via:
+	\begin{itemize}
+		\item Proto-Value Functions (PVFs): eigenvectors of the graph Laplacian
+		\item Successor Features: expected discounted state occupancy
+		\item Handcrafted Features: domain-specific engineered features (baseline)
+	\end{itemize}
+	
+	\item \textbf{ADP with Linear VFA}: Apply temporal difference learning to estimate value functions using each representation, compare performance.
+	
+	\item \textbf{Evaluation}: Test learned policies under congestion and disruption scenarios, analyze approximation quality and robustness.
+\end{enumerate}
+
+\section{Contributions}
+
+\begin{itemize}
+	\item A mathematically rigorous MDP formulation of stochastic gate assignment suitable for simulation and analysis
+	\item Empirical comparison of automatic vs. handcrafted state representations in a safety-critical operational domain
+	\item Analysis of interpretability and scalability trade-offs in representation learning for ADP
+	\item Open-source implementation enabling reproducibility and extension
+\end{itemize}
+
+\section{Thesis Outline}
+
+The remainder of this thesis is organized as follows:
+
+\begin{itemize}
+	\item \textbf{Chapter~\ref{chap:background}}: Background on MDPs, ADP, and spectral methods
+	\item \textbf{Chapter~\ref{chap:mdp}}: Formal MDP formulation of gate assignment
+	\item \textbf{Chapter~\ref{chap:simulation}}: Trajectory generation methodology
+	\item \textbf{Chapter~\ref{chap:representation}}: State representation methods
+	\item \textbf{Chapter~\ref{chap:adp}}: ADP implementation with linear VFA
+	\item \textbf{Chapter~\ref{chap:experiments}}: Experimental design
+	\item \textbf{Chapter~\ref{chap:results}}: Results and analysis
+	\item \textbf{Chapter~\ref{chap:conclusion}}: Conclusions and future work
+\end{itemize}

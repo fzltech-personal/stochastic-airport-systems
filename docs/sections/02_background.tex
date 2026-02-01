@@ -1,0 +1,114 @@
+\chapter{Background}
+\label{chap:background}
+
+\section{Markov Decision Processes}
+
+\begin{definition}[Finite-Horizon MDP]
+	A finite-horizon Markov Decision Process is a tuple $(\mathcal{S}, \mathcal{A}, P, R, T)$ where:
+	\begin{itemize}
+		\item $\mathcal{S}$ is a finite state space
+		\item $\mathcal{A}$ is a finite action space
+		\item $P: \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to [0,1]$ is the transition probability function
+		\item $R: \mathcal{S} \times \mathcal{A} \to \R$ is the reward function
+		\item $T \in \mathbb{N}$ is the time horizon
+	\end{itemize}
+\end{definition}
+
+A policy $\pi: \mathcal{S} \times \{0, \ldots, T-1\} \to \mathcal{A}$ maps states and time to actions. The value function under policy $\pi$ is:
+%
+\begin{equation}
+	V^\pi_t(s) = \E^\pi\left[\sum_{k=t}^{T-1} R(s_k, a_k) \mid s_t = s\right]
+\end{equation}
+
+The optimal value function satisfies the Bellman optimality equation:
+%
+\begin{equation}
+	V^*_t(s) = \max_{a \in \mathcal{A}} \left\{ R(s,a) + \sum_{s' \in \mathcal{S}} P(s'|s,a) V^*_{t+1}(s') \right\}
+\end{equation}
+
+\section{Approximate Dynamic Programming}
+
+When the state space is large, exact dynamic programming becomes computationally intractable. Approximate Dynamic Programming addresses this through value function approximation.
+
+\subsection{Linear Value Function Approximation}
+
+We approximate the value function as a linear combination of basis functions:
+%
+\begin{equation}
+	\hat{V}(s; \theta) = \sum_{i=1}^k \theta_i \phi_i(s) = \phi(s)^\top \theta
+\end{equation}
+%
+where $\phi: \mathcal{S} \to \R^k$ maps states to feature vectors and $\theta \in \R^k$ are learnable weights.
+
+\subsection{Temporal Difference Learning}
+
+The TD(0) update for linear VFA is:
+%
+\begin{equation}
+	\theta \leftarrow \theta + \alpha \left[r + \hat{V}(s'; \theta) - \hat{V}(s; \theta)\right] \phi(s)
+\end{equation}
+%
+where $\alpha > 0$ is the learning rate.
+
+\section{Proto-Value Functions}
+
+Proto-Value Functions \citep{mahadevan2007proto} provide a task-independent basis for value function approximation derived from the topology of the state space.
+
+\subsection{Graph Laplacian}
+
+Given a weighted graph $G = (V, E, W)$ representing state transitions:
+%
+\begin{equation}
+	L = D - W
+\end{equation}
+%
+where $W$ is the weighted adjacency matrix and $D$ is the degree matrix with $D_{ii} = \sum_j W_{ij}$.
+
+The normalized Laplacian is:
+%
+\begin{equation}
+	\mathcal{L} = I - D^{-1/2} W D^{-1/2}
+\end{equation}
+
+\subsection{Spectral Basis Functions}
+
+The eigenvectors of $\mathcal{L}$ corresponding to the smallest eigenvalues form a smooth basis over the state space. Let $0 = \lambda_1 \leq \lambda_2 \leq \cdots \leq \lambda_{|\mathcal{S}|}$ be the eigenvalues with eigenvectors $v_1, \ldots, v_{|\mathcal{S}|}$.
+
+The first $k$ non-trivial eigenvectors $\{v_2, \ldots, v_{k+1}\}$ serve as PVFs:
+%
+\begin{equation}
+	\phi_i(s) = v_{i+1}(s), \quad i = 1, \ldots, k
+\end{equation}
+
+\subsection{Interpretation}
+
+PVFs capture the "geometry" of the state space:
+\begin{itemize}
+	\item Lower eigenvalues correspond to smoother functions over the graph
+	\item They identify bottlenecks and clusters in state-transition structure
+	\item Task-independent: derived from dynamics, not rewards
+\end{itemize}
+
+\section{Successor Features}
+
+Successor features \citep{dayan1993improving, barreto2017successor} represent states by their expected future occupancy.
+
+\begin{definition}[Successor Representation]
+	The successor representation under policy $\pi$ with discount factor $\gamma$ is:
+	%
+	\begin{equation}
+		\psi^\pi(s) = \E^\pi\left[\sum_{t=0}^\infty \gamma^t \mathbb{I}[s_t = s] \mid s_0 = s\right]
+	\end{equation}
+\end{definition}
+
+Successor features generalize this to feature expectations:
+%
+\begin{equation}
+	\psi^\pi(s) = \E^\pi\left[\sum_{t=0}^\infty \gamma^t \phi(s_t) \mid s_0 = s\right]
+\end{equation}
+
+These can be learned via TD updates and enable transfer learning across tasks with different reward functions.
+
+\section{Related Work}
+
+[Summary of relevant literature on airport scheduling, ADP applications in operations research, spectral methods in RL, etc.]

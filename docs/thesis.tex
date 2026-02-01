@@ -1,0 +1,88 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage{geometry}
+\geometry{
+    a4paper,
+    left=1.5cm,
+    right=1.5cm,
+    top=3cm,
+    bottom=3cm
+}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{booktabs}
+\usepackage{natbib}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+
+% Custom commands
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\argmax}{\operatorname*{argmax}}
+\newcommand{\argmin}{\operatorname*{argmin}}
+
+% Hyperref setup
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue,
+	citecolor=blue,
+	urlcolor=blue,
+}
+
+% Document metadata
+\title{Approximate Dynamic Programming for Stochastic Airport Operations: \\
+	A Study of Automatic State Representation Methods}
+\author{Jeroen Fränzel}
+\date{\today}
+
+\begin{document}
+	
+	\maketitle
+	
+	\begin{abstract}
+		\input{sections/00_abstract}
+	\end{abstract}
+	
+	\tableofcontents
+	% \listoffigures
+	% \listoftables
+	
+	% Main content
+	\input{sections/01_introduction}
+	\input{sections/02_background}
+	\input{sections/03_mdp_formulation}
+	\input{sections/04_simulation}
+	\input{sections/05_representation_learning}
+	\input{sections/06_adp_implementation}
+	\input{sections/07_experiments}
+	\input{sections/08_results}
+	\input{sections/09_conclusion}
+	
+	% Bibliography
+	\bibliographystyle{plainnat}
+	\bibliography{references}
+	
+	% Appendices
+	\appendix
+	\input{sections/appendix_a_proofs}
+	\input{sections/appendix_b_implementation}
+	
+\end{document}

@@ -1,0 +1,107 @@
+\chapter{MDP Formulation of Gate Assignment}
+\label{chap:mdp}
+
+\section{Problem Description}
+
+An airport has $G$ gates available for aircraft turnaround operations. Flights arrive stochastically over a finite time horizon $T$. Each flight requires assignment to a gate for a random service duration (disembarkation, cleaning, refueling, boarding). The objective is to minimize waiting times and maximize throughput while respecting operational constraints.
+
+\section{State Space}
+
+The state at time $t$ is a tuple $s_t = (t, \mathbf{g}_t, \mathbf{q}_t)$ where:
+
+\begin{itemize}
+	\item $t \in \{0, 1, \ldots, T\}$: current time index
+	\item $\mathbf{g}_t \in \{0, 1, \ldots, S_{\max}\}^G$: gate occupancy vector
+	\begin{itemize}
+		\item $g_i = 0$: gate $i$ is available
+		\item $g_i = s > 0$: gate $i$ occupied, $s$ time steps remaining
+	\end{itemize}
+	\item $\mathbf{q}_t$: queue of waiting flights
+	\begin{itemize}
+		\item Each flight characterized by: arrival time, gate type compatibility, priority
+	\end{itemize}
+\end{itemize}
+
+\section{Action Space}
+
+At each time step, the decision-maker selects an action $a_t \in \mathcal{A}_t$ where:
+%
+\begin{equation}
+	\mathcal{A}_t = \{(f, g) : f \in \mathbf{q}_t, g \in \text{Available}(\mathbf{g}_t), \text{Compatible}(f, g)\} \cup \{\text{wait}\}
+\end{equation}
+
+An action $(f, g)$ assigns waiting flight $f$ to available gate $g$. The "wait" action defers assignment.
+
+\section{Transition Dynamics}
+
+The transition from $s_t$ to $s_{t+1}$ involves:
+
+\subsection{Deterministic Time Evolution}
+
+\begin{equation}
+	t \to t+1
+\end{equation}
+
+\subsection{Gate Occupancy Updates}
+
+For each gate $i$:
+%
+\begin{equation}
+	g_i^{t+1} = \begin{cases}
+		s-1 & \text{if } g_i^t = s > 1 \\
+		0 & \text{if } g_i^t = 1 \text{ (service completes)} \\
+		\text{Service}(f) & \text{if action assigns flight } f \text{ to gate } i
+	\end{cases}
+\end{equation}
+%
+where $\text{Service}(f) \sim P_{\text{service}}$ is a random service duration.
+
+\subsection{Stochastic Arrivals}
+
+New flights arrive according to a Poisson or scheduled process:
+%
+\begin{equation}
+	\text{NewArrivals}_{t+1} \sim P_{\text{arrival}}(t)
+\end{equation}
+
+\subsection{Queue Updates}
+
+\begin{equation}
+	\mathbf{q}_{t+1} = (\mathbf{q}_t \setminus \{f\}) \cup \text{NewArrivals}_{t+1}
+\end{equation}
+%
+where $f$ is the assigned flight (if any).
+
+\section{Reward Function}
+
+The immediate reward penalizes waiting and encourages throughput:
+%
+\begin{equation}
+	R(s_t, a_t) = -c_{\text{wait}} \cdot |\mathbf{q}_t| - c_{\text{overflow}} \cdot \mathbb{I}[|\mathbf{q}_t| > Q_{\max}] + c_{\text{assign}} \cdot \mathbb{I}[\text{assignment made}]
+\end{equation}
+
+\section{Assumptions}
+
+\begin{assumption}
+	Service times are independent and identically distributed random variables with finite support.
+\end{assumption}
+
+\begin{assumption}
+	Arrival processes are stationary within each time period.
+\end{assumption}
+
+\begin{assumption}
+	Gates are homogeneous (can be relaxed to gate types: domestic/international, wide-body/narrow-body).
+\end{assumption}
+
+\section{Complexity Analysis}
+
+The state space size is:
+%
+\begin{equation}
+	|\mathcal{S}| \approx T \cdot (S_{\max} + 1)^G \cdot \binom{F_{\max} + Q_{\max}}{Q_{\max}}
+\end{equation}
+%
+where $F_{\max}$ is the maximum number of flight types and $Q_{\max}$ is the queue capacity.
+
+For realistic parameters ($G=10$, $S_{\max}=10$, $T=100$, $Q_{\max}=20$), exact dynamic programming is intractable, motivating the need for approximation.
