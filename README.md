@@ -185,7 +185,7 @@ Key literature foundations (to be expanded in `references.bib`):
 
 This is a research project. External contributions are not expected at this stage.
 
-For questions or collaboration inquiries: [Add contact information if desired]
+For questions or collaboration inquiries: [Jeroen Fränzel](j.franzel@hotmail.com)
 
 ---
 
