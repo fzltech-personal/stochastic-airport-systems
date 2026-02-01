@@ -107,7 +107,7 @@ airport-mdp-adp/
 
 ```bash
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/fzltech-personal/stochastic-airport-systems.git
 cd airport-mdp-adp
 
 # Create virtual environment (recommended)
