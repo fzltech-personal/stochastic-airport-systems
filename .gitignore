@@ -1,0 +1,41 @@
+# LaTeX artifacts
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.synctex.gz
+docs/*.bbl
+docs/*.blg
+docs/*.fdb_latexmk
+docs/*.fls
+docs/thesis.pdf
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Data (large files)
+experiments/results/trajectories/*.npy
+experiments/results/trajectories/*.pkl
+experiments/results/graphs/*.pkl
+
+# Notebooks
+notebooks/.ipynb_checkpoints/
+
+# Virtual environment
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
