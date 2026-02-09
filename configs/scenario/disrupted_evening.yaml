@@ -1,0 +1,69 @@
+name: "Disrupted Evening - Delayed Arrivals with Runway Closure"
+
+airport:
+  num_gates: 8
+  num_runways: 2
+  delta_matrix:
+    - [2, 3, 5, 7, 8, 10, 12, 15]   # Runway 0 (North)
+    - [15, 12, 10, 8, 7, 5, 3, 2]   # Runway 1 (South)
+
+aircraft_types:
+  - name: "regional"
+    base_service_mean: 30
+    base_service_std: 3
+    probability: 0.10  # More regional during evening commuter hours
+
+  - name: "narrow-body"
+    base_service_mean: 45
+    base_service_std: 5
+    probability: 0.65
+
+  - name: "wide-body"
+    base_service_mean: 90
+    base_service_std: 10
+    probability: 0.25
+
+compatibility:
+  matrix:  # Regional, Narrow, Wide × 8 gates
+    - [1, 1, 1, 1, 0, 0, 0, 0]  # Regional: gates 0-3
+    - [1, 1, 1, 1, 1, 1, 0, 0]  # Narrow: gates 0-5
+    - [0, 0, 1, 1, 1, 1, 1, 1]  # Wide: gates 2-7
+
+  preferences:
+    - [3.0, 3.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [2.0, 2.0, 1.5, 1.5, 1.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]
+
+schedule:
+  scenario_name: "Evening Disruption 6PM-10PM"
+  num_flights: 60
+  generation_params:
+    arrival_pattern: "disrupted_wave"
+    # Simulation: Runway 1 closes at 7:30 PM, causing bunching on Runway 0
+    disruption_event:
+      type: "runway_closure"
+      affected_runway: 1
+      start_time: 1170  # 7:30 PM (in minutes from midnight)
+      duration: 90      # 1.5 hours
+    base_pattern: "uniform"
+    time_window: [1080, 1320]  # 6PM - 10PM
+    pre_disruption_runway_prob: [0.5, 0.5]
+    post_disruption_runway_prob: [1.0, 0.0]  # All to Runway 0
+
+noise_model:
+  distribution: "erlang"  # Cascading delays typical of evening congestion
+  params:
+    shape: 3
+    scale: 5  # Mean delay ~15 minutes, but always positive
+
+rewards:
+  c_wait: -2.0      # Higher penalty - passengers miss connections
+  c_overflow: -150.0  # Severe penalty for queue overflow
+  c_assign: 1.0
+  beta: 0.1         # Lower preference weight - prioritize throughput
+  Q_max: 10         # Higher tolerance during disruption
+
+time:
+  horizon: 1440
+  timestep: 1
+  S_max: 150

@@ -1,0 +1,56 @@
+name: "Morning Rush - Realistic Airport"
+
+airport:
+  num_gates: 8
+  num_runways: 2
+  delta_matrix:
+    - [2, 3, 5, 7, 8, 10, 12, 15]
+    - [15, 12, 10, 8, 7, 5, 3, 2]
+
+aircraft_types:
+  - name: "regional"
+    base_service_mean: 30
+    base_service_std: 3
+    probability: 0.05
+  - name: "narrow-body"
+    base_service_mean: 45
+    base_service_std: 5
+    probability: 0.70
+  - name: "wide-body"
+    base_service_mean: 90
+    base_service_std: 10
+    probability: 0.25
+
+compatibility:
+  matrix:
+    - [1, 1, 1, 1, 0, 0, 0, 0]
+    - [1, 1, 1, 1, 1, 1, 0, 0]
+    - [0, 0, 1, 1, 1, 1, 1, 1]
+  preferences:
+    - [3.0, 3.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [2.0, 2.0, 1.5, 1.5, 1.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]
+
+schedule:
+  scenario_name: "Morning Peak 6AM-10AM"
+  num_flights: 80
+  # Reference to data file (relative to project root)
+  schedule_file: "data/schedules/synthetic/morning_rush_80.json"
+
+noise_model:
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 8
+
+rewards:
+  c_wait: -1.5
+  c_overflow: -100.0
+  c_assign: 1.0
+  beta: 0.3
+  Q_max: 8
+
+time:
+  horizon: 1440
+  timestep: 1
+  S_max: 150

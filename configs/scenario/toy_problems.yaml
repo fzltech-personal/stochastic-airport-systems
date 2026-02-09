@@ -1,0 +1,55 @@
+name: "Toy Problem - 3 Gates, 2 Runways"
+
+airport:
+  num_gates: 3
+  num_runways: 2
+  delta_matrix:  # Taxiing times (minutes): runways × gates
+    - [2, 5, 10]   # Runway 0 → Gates [0, 1, 2]
+    - [10, 5, 2]   # Runway 1 → Gates [0, 1, 2]
+
+aircraft_types:
+  - name: "narrow-body"
+    base_service_mean: 45
+    base_service_std: 5
+    probability: 0.7
+
+  - name: "wide-body"
+    base_service_mean: 90
+    base_service_std: 10
+    probability: 0.3
+
+compatibility:
+  # Rows: aircraft types, Cols: gates
+  matrix:
+    - [1, 1, 0]  # Narrow-body: gates 0, 1 only
+    - [0, 1, 1]  # Wide-body: gates 1, 2 only
+
+  preferences:  # Operational preference scores
+    - [2.0, 1.0, 0.0]  # Narrow prefers gate 0
+    - [0.0, 1.0, 2.0]  # Wide prefers gate 2
+
+schedule:
+  scenario_name: "Toy - Uniform Arrivals"
+  num_flights: 20
+  generation_params:
+    arrival_pattern: "uniform"
+    time_window: [0, 480]  # 8 hours
+    runway_assignment: "alternating"  # Simple alternation
+
+noise_model:
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 5  # minutes
+
+rewards:
+  c_wait: -1.0
+  c_overflow: -50.0
+  c_assign: 0.5
+  beta: 0.2
+  Q_max: 5
+
+time:
+  horizon: 480  # 8 hours in minutes
+  timestep: 1
+  S_max: 120  # Max possible service time

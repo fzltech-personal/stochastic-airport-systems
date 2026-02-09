@@ -1,0 +1,88 @@
+# Reusable noise model definitions for different operational scenarios
+
+normal_operations:
+  description: "Standard operations with minor schedule variations"
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 5  # ±5 minute typical variation
+
+windy_conditions:
+  description: "Moderate weather causing approach delays"
+  distribution: "normal"
+  params:
+    mean: 3     # Systematic 3-minute delay
+    std: 8      # Higher variance
+
+severe_weather:
+  description: "Storms causing significant delays"
+  distribution: "erlang"
+  params:
+    shape: 4
+    scale: 8    # Mean delay ~32 minutes, always positive
+
+holding_pattern:
+  description: "Air traffic congestion requiring holding"
+  distribution: "erlang"
+  params:
+    shape: 3
+    scale: 5    # Mean delay ~15 minutes
+
+mixed_conditions:
+  description: "Variable conditions (early arrivals and delays)"
+  distribution: "uniform"
+  params:
+    low: -10    # Up to 10 min early
+    high: 20    # Up to 20 min late
+
+minimal_noise:
+  description: "Nearly deterministic (testing/validation)"
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 1      # Very tight schedule adherence
+
+# Recommended noise models for different times of day
+
+time_of_day_recommendations:
+  early_morning:  # 5 AM - 8 AM
+    distribution: "normal"
+    params:
+      mean: -2   # Flights often early
+      std: 4
+    rationale: "Less congestion, good weather visibility"
+
+  morning_rush:  # 8 AM - 11 AM
+    distribution: "normal"
+    params:
+      mean: 2
+      std: 6
+    rationale: "Building congestion, schedule pressure"
+
+  midday:  # 11 AM - 3 PM
+    distribution: "normal"
+    params:
+      mean: 0
+      std: 5
+    rationale: "Steady state operations"
+
+  afternoon_peak:  # 3 PM - 6 PM
+    distribution: "erlang"
+    params:
+      shape: 2
+      scale: 4
+    rationale: "Cumulative delays from earlier operations"
+
+  evening:  # 6 PM - 10 PM
+    distribution: "erlang"
+    params:
+      shape: 3
+      scale: 6
+    rationale: "Peak cumulative delays, connection pressure"
+
+  late_night:  # 10 PM - 1 AM
+    distribution: "uniform"
+    params:
+      low: -5
+      high: 30
+    rationale: "Mix of on-time cargo and delayed passengers"

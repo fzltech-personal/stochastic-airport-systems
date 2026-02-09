@@ -1,0 +1,70 @@
+# Reusable reward structure definitions for different operational priorities
+
+balanced:
+  description: "Balanced objectives - typical operations"
+  c_wait: -1.0
+  c_overflow: -50.0
+  c_assign: 0.5
+  beta: 0.2
+  Q_max: 5
+  rationale: "Equal weight to throughput and preference matching"
+
+throughput_priority:
+  description: "Maximize aircraft processed (hub operations)"
+  c_wait: -2.0       # Strong penalty for waiting
+  c_overflow: -100.0
+  c_assign: 1.0      # Encourage assignments
+  beta: 0.1          # Lower preference weight
+  Q_max: 8           # Tolerate longer queues
+  rationale: "Peak hours - get planes moving even if not ideal gate"
+
+preference_priority:
+  description: "Optimize passenger experience (low congestion)"
+  c_wait: -0.5       # Lighter wait penalty
+  c_overflow: -30.0
+  c_assign: 0.3
+  beta: 0.5          # High preference weight
+  Q_max: 3           # Low queue tolerance
+  rationale: "Off-peak - prioritize connecting passengers and airline preferences"
+
+disruption_mode:
+  description: "Emergency/disruption handling"
+  c_wait: -3.0       # Very high wait penalty
+  c_overflow: -200.0 # Avoid overflow at all costs
+  c_assign: 2.0      # Strong assignment incentive
+  beta: 0.0          # Ignore preferences
+  Q_max: 15          # Accept larger queues temporarily
+  rationale: "Runway closure, severe weather - safety and capacity first"
+
+cargo_operations:
+  description: "Cargo hub operations (no passenger connections)"
+  c_wait: -0.5       # Lower urgency
+  c_overflow: -40.0
+  c_assign: 0.5
+  beta: 0.0          # No preferences (cargo indifferent)
+  Q_max: 10          # Can tolerate queues
+  rationale: "Cargo has fewer time constraints than passengers"
+
+premium_service:
+  description: "Premium airline operations (business/first class focus)"
+  c_wait: -1.5
+  c_overflow: -75.0
+  c_assign: 0.8
+  beta: 0.8          # Very high preference weight
+  Q_max: 3           # Low tolerance
+  rationale: "High-value passengers expect preferred gates and minimal delays"
+
+# Context-specific recommendations
+
+operational_contexts:
+  normal_weekday:
+    inherit: "balanced"
+    description: "Standard weekday operations"
+
+  weekend_leisure:
+    inherit: "preference_priority"
+    description: "Lower congestion, prioritize experience"
+
+  holiday_rush:
+    inherit: "throughput_priority"
+    description: "Thanksgiving, Christmas - max

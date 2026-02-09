@@ -40,3 +40,22 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large data files (use Git LFS or exclude entirely)
+data/schedules/historical/**/*.json
+data/schedules/historical/**/*.csv
+
+# Keep synthetic data (small enough to commit)
+!data/schedules/synthetic/
+
+# Keep README files
+!data/**/README.md
+!data/README.md
+
+# Experiment outputs (large)
+#experiments/results/trajectories/*.npy
+#experiments/results/graphs/*.pkl
+
+# Keep result summaries
+!experiments/results/**/*.json
+!experiments/results/**/*.csv

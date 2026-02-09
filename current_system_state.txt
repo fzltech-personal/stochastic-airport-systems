@@ -1,0 +1,170 @@
+# Project Structure and File Descriptions
+
+## Directory Tree
+
+```
+stochastic-airport-systems/
+├── configs/
+│   ├── components/
+│   │   ├── aircraft_types.yaml
+│   │   ├── noise_models.yaml
+│   │   └── reward_structures.yaml
+│   └── scenario/
+│       ├── disrupted_evening.yaml
+│       ├── morning_rush.yaml
+│       └── toy_problems.yaml
+├── data/
+│   ├── schedules/
+│   │   ├── historical/
+│   │   └── synthetic/
+│   ├── topologies/
+│   └── README.md
+├── src/
+│   ├── config/
+│   │   ├── __init__.py
+│   │   ├── airport.py
+│   │   ├── compatibility.py
+│   │   ├── loader.py
+│   │   ├── noise.py
+│   │   ├── reward.py
+│   │   ├── scenario.py
+│   │   ├── schedule.py
+│   │   └── time.py
+│   └── mdp/
+│       ├── components/
+│       │   ├── __init__.py
+│       │   ├── aircraft.py
+│       │   ├── flight.py
+│       │   ├── gate.py
+│       │   ├── runway.py
+│       │   └── schedule_generator.py
+│       ├── action.py
+│       ├── environment.py
+│       └── state.py
+├── .gitignore
+├── main.py
+└── README.md
+```
+
+## File-by-File Descriptions
+
+### 1. Root level files
+
+#### `main.py`
+- **Purpose**: Entry point for the application. Currently handles scenario inspection and synthetic schedule generation.
+- **Key Functions**: `generate_schedule_from_scenario`, `inspect_scenario`, `load_and_show_flights`.
+- **Current Status**: Functional for configuration loading and schedule generation.
+
+#### `README.md`
+- **Purpose**: Project documentation outlining the research goals (ADP for airport operations), mathematical framework, and intended project stages.
+
+### 2. configs/
+
+#### `configs/scenario/*.yaml`
+- **Purpose**: Defines specific problem instances (e.g., `morning_rush.yaml`, `disrupted_evening.yaml`).
+- **Key Content**: Aggregates airport topology, aircraft types, compatibility matrices, schedule parameters, and reward weights into a single experiment definition.
+
+#### `configs/components/*.yaml`
+- **Purpose**: Reusable configuration snippets.
+- **Key Content**: Definitions for standard aircraft types, noise models (weather conditions), and reward structures (operational priorities).
+
+### 3. src/config/
+
+This module handles the loading, validation, and representation of configuration data.
+
+#### `src/config/loader.py`
+- **Purpose**: Factory class to parse YAML files into `ScenarioConfig` objects.
+- **Key Classes**: `ScenarioLoader`.
+- **Current Status**: Complete.
+
+#### `src/config/scenario.py`
+- **Purpose**: Top-level configuration object that aggregates all other config components.
+- **Key Classes**: `ScenarioConfig` (frozen data class).
+- **Key Design Decisions**: Implements cross-validation (e.g., checking compatibility matrix dimensions against aircraft types).
+
+#### `src/config/schedule.py`
+- **Purpose**: Manages flight schedule sources (explicit list, file reference, or generation params).
+- **Key Classes**: `ScheduleConfig`.
+- **Key Design Decisions**: Enforces exclusive source selection (you can't specify both a file and generation params simultaneously).
+
+#### `src/config/airport.py`
+- **Purpose**: Defines physical airport layout (gates, runways, taxiing times).
+- **Key Classes**: `AirportTopologyConfig`.
+
+#### `src/config/compatibility.py`
+- **Purpose**: Manages aircraft-gate compatibility (hard constraints) and preferences (soft rewards).
+- **Key Classes**: `CompatibilityConfig`.
+
+#### `src/config/noise.py`
+- **Purpose**: Defines stochastic arrival noise models (Normal, Uniform, Erlang).
+- **Key Classes**: `NoiseModelConfig`.
+
+#### `src/config/reward.py`
+- **Purpose**: Defines reward function parameters (weights for waiting, overflow, assignment).
+- **Key Classes**: `RewardConfig`.
+
+#### `src/config/time.py`
+- **Purpose**: Defines simulation horizon and time discretization.
+- **Key Classes**: `TimeConfig`.
+
+### 4. src/mdp/
+
+This module contains the core domain logic and MDP formulation.
+
+#### `src/mdp/components/flight.py`
+- **Purpose**: Domain object representing a single flight arrival.
+- **Key Classes**: `Flight`.
+- **Key Design Decisions**: Separates scheduled time from actual time (to handle delays). Includes serialization logic.
+
+#### `src/mdp/components/aircraft.py`
+- **Purpose**: Configuration and behavior for aircraft types (e.g., service time sampling).
+- **Key Classes**: `AircraftTypeConfig`.
+
+#### `src/mdp/components/schedule_generator.py`
+- **Purpose**: Generates synthetic flight schedules based on patterns (uniform, peak, disrupted).
+- **Key Classes**: `ScheduleGenerator`.
+- **Current Status**: Implemented with support for multiple arrival patterns.
+
+#### `src/mdp/components/gate.py` & `runway.py`
+- **Current Status**: **Empty**. These files exist but contain no code.
+
+#### `src/mdp/state.py`, `action.py`, `environment.py`
+- **Current Status**: **Empty**. The core MDP logic (state representation, transition dynamics, environment loop) has not been implemented yet.
+
+### 5. data/
+
+#### `data/schedules/`
+- **Purpose**: Storage for generated JSON schedule files.
+- **Current Status**: Contains `synthetic` and `historical` subdirectories.
+
+## Current Implementation Status
+
+### Fully Implemented
+- **Configuration System**: Robust loading, validation, and object mapping using `attrs` and `yaml`.
+- **Schedule Generation**: Ability to create synthetic schedules with various patterns (waves, disruptions) and save them to JSON.
+- **Domain Objects**: `Flight` and `AircraftType` are well-defined.
+
+### Stubs / Empty
+- **MDP Core**: `state.py`, `action.py`, and `environment.py` are empty.
+- **Physical Components**: `gate.py` and `runway.py` are empty.
+
+### Missing
+- **Simulation Engine**: No code exists to actually run the simulation (process time steps, assign gates, calculate rewards).
+- **Tests**: The `tests/` directory mentioned in README is missing from the file system.
+- **Experiments**: The `experiments/` directory mentioned in README is missing.
+
+## Key Architectural Decisions
+
+1.  **Separation of Config and Data**:
+    - **Configs** (`configs/`) define the *rules* of the simulation (topology, rewards, distributions).
+    - **Data** (`data/`) holds the *instances* of traffic (schedules).
+    - This allows running the same "Morning Rush" scenario logic against different random schedule realizations.
+
+2.  **Flight Object Location**:
+    - `Flight` is located in `src/mdp/components/` rather than `src/config/` because it is a dynamic entity that changes state (e.g., `actual_time`, `gate_assigned`) during simulation, whereas config objects are immutable.
+
+3.  **Immutable Configuration**:
+    - The project uses `attrs` with `frozen=True` for all config classes. This ensures that simulation parameters cannot be accidentally modified during runtime, preventing subtle bugs in RL/ADP training.
+
+4.  **Schedule Generation Workflow**:
+    - The system is designed to **generate** a schedule first (using `generation_params` in the scenario), save it to disk, and then **reference** that file in the scenario config. This ensures reproducibility: once a stochastic schedule is generated, it becomes a fixed dataset for comparing different algorithms.
