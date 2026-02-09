@@ -11,6 +11,7 @@ This project studies stochastic airport scheduling problems—primarily gate ass
 - **Automatic state representation learning** via spectral methods (Proto-Value Functions) and Successor Features.
 - **Linear value function approximation** for scalable ADP.
 - **Comparison of handcrafted vs. learned basis functions** in a safety-critical domain.
+- **Aircraft-gate compatibility constraints**, distinguishing physical limitations (hard constraints) from operational preferences (soft rewards).
 
 **This is NOT a deep reinforcement learning project.** We use simulation and structured mathematical methods (Spectral Graph Theory) to maintain interpretability, safety awareness, and theoretical rigor.
 
@@ -36,7 +37,8 @@ airport-mdp-adp/
 │   ├── simulation/             # Trajectory generation under representative schedules
 │   ├── representation/         # Basis function construction (PVFs, successor features)
 │   ├── adp/                    # Value function approximation and TD learning
-│   └── utils/                  # Configuration and visualization
+│   ├── utils/                  # Configuration and visualization
+│   └── config/                 # Aircraft types, compatibility matrices, reward weights
 │
 ├── experiments/                # Runnable scripts for each project stage
 │   ├── 01_trajectory_generation.py
@@ -54,16 +56,18 @@ airport-mdp-adp/
 
 ## Project Stages
 
-### Stage 1: MDP Formulation ✓
-- **State space:** Time, gate occupancy vectors, queue of waiting flights (including runway origin).
-- **Action space:** Gate assignment decisions (Wait vs. Assign).
-- **Dynamics:** - **Arrivals:** Master schedule + stochastic noise (perturbations).
-    - **Service:** Base service time + **Runway-to-Gate taxiing penalty** (Heterogeneous gates).
-- **Reward structure:** Penalties for waiting time and queue overflow; rewards for throughput.
+### Stage 1: MDP Formulation ✓ (Recently Updated)
+- **State space:** Time, gate occupancy vectors, queue of waiting flights (including runway origin **and aircraft type**).
+- **Action space:** Gate assignment decisions subject to **aircraft-gate compatibility constraints**.
+- **Dynamics:** 
+    - **Arrivals:** Master schedule + stochastic noise (perturbations).
+    - **Service:** Base service time (**type-dependent**) + **Runway-to-Gate taxiing penalty**.
+- **Reward structure:** Penalties for waiting time and queue overflow; rewards for throughput **and aircraft-gate matching**.
 
-### Stage 2: Trajectory Generation ✓
+### Stage 2: Trajectory Generation (in progress)
 - Simulate episodes using **representative daily schedules** (e.g., Morning Rush, Delayed Evening).
-- Collect state-action-reward-next_state tuples under baseline policies (Random, Greedy).
+- **Sample aircraft types** from realistic distributions for each flight.
+- Collect state-action-reward-next_state tuples under baseline policies (Random, Greedy, **Compatibility-Aware Greedy**).
 - Store trajectories to capture the "interaction dynamics" of the airport.
 
 ### Stage 3: State-Transition Graph Construction (In Progress)
@@ -73,7 +77,7 @@ airport-mdp-adp/
 
 ### Stage 4: Automatic Basis Construction (Planned)
 - **Proto-Value Functions (PVFs):** Laplacian eigenfunctions of the time-collapsed graph to capture global geometry.
-- **Successor Features:** Learned representations predicting future occupancy of specific gate/runway features.
+- **Successor Features:** Learned representations predicting future occupancy of specific **gate/runway/type** features.
 - **State Aggregation:** Clustering-based dimensionality reduction.
 
 ### Stage 5: ADP with Linear VFA (Planned)
@@ -90,12 +94,22 @@ airport-mdp-adp/
 
 ---
 
+## Current Focus
+
+**Active Development:** Integrating aircraft-gate compatibility into the MDP formulation and trajectory generation pipeline.
+
+**Next Immediate Steps:**
+1. Define realistic compatibility matrix $\mathbf{C}$ and preference matrix $\mathbf{P}$ for experimental scenarios
+2. Implement type-aware trajectory generation with compatibility checking
+3. Verify that baseline policies respect hard constraints
+---
+
 ## Technical Foundation
 
 **Mathematical Framework:**
 - Finite-horizon, discrete-time MDPs.
 - **Bellman equations** and dynamic programming.
-- **Linear value function approximation:** $\hat{V}(s) = \phi(s)^\top \theta$.
+- **Linear value function approximation:** $\hat{V}(s) = \phi(s)^\top \theta$, where $s = (t, \mathbf{g}, \mathbf{q})$ with $\mathbf{q}$ encoding runway origins **and aircraft types**.
 - **Temporal difference learning** for parameter estimation.
 
 **Key Methods:**
@@ -168,6 +182,8 @@ pytest tests/
 * **Graphs:** Stored as `.npy` adjacency matrices or NetworkX pickles in `experiments/results/graphs/`.
 * **Basis Functions:** Stored as `.npy` arrays (each column = one basis function).
 
+* **Configuration Files:** Aircraft type definitions, compatibility matrix $\mathbf{C}$, preference matrix $\mathbf{P}$, and reward parameters stored as JSON or YAML in `src/config/`.
+
 **Not tracked in git:** large trajectory files, and LaTeX build artifacts (see `.gitignore`).
 
 ---
@@ -188,6 +204,9 @@ Key literature foundations (to be expanded in `references.bib`):
 * **Proto-Value Functions:** Mahadevan & Maggioni (2007) - "Proto-value functions: A Laplacian framework for learning representation and control in Markov decision processes"
 * **Approximate Dynamic Programming:** Powell (2011) - "Approximate Dynamic Programming"
 * **Successor Representations:** Dayan (1993) - "Improving generalization for temporal difference learning: The successor representation"
+* **Gate Assignment Problems:** [Add relevant OR/scheduling references as you encounter them]
+* **Aircraft-Gate Compatibility:** [Industry standards or academic papers on terminal design]
+
 
 ---
 
