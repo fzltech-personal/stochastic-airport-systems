@@ -3,14 +3,14 @@
 
 \section{Motivation}
 Airport operations face increasing complexity due to growing air traffic volumes, resource constraints, and operational uncertainties.
-Gate assignment—the problem of allocating arriving aircraft to terminal gates—is a critical scheduling task that directly affects passenger experience, airline efficiency, and airport throughput.
+Gate assignment, the problem of allocating arriving aircraft to terminal gates is a critical scheduling task that directly affects passenger experience, airline efficiency, and airport throughput.
 
 Traditional approaches to gate assignment often rely on deterministic optimization or heuristic rules, assuming fixed schedules and homogeneous resources.
 However, real-world operations involve significant stochastic elements and physical constraints:
 \begin{itemize}
-	\item **Uncertain Arrivals:** Flights rarely arrive exactly at their scheduled times due to weather, air traffic control holds, and upstream delays.
-	\item **Heterogeneous Resources:** Gates are not identical; varying distances between multiple runways and terminal gates create significant differences in taxiing times and total gate occupancy durations.
-	\item **Complex Constraints:** Assessing the "cost" of an assignment requires balancing immediate taxiing penalties against future gate availability and queue overflows.
+	\item \textbf{Uncertain Arrivals:} Flights rarely arrive exactly at their scheduled times due to weather, air traffic control holds, and upstream delays.
+	\item \textbf{Heterogeneous Resources:} Gates are not identical; varying distances between multiple runways and terminal gates create significant differences in taxiing times and total gate occupancy durations.
+	\item \textbf{Complex Constraints:} Assessing the "cost" of an assignment requires balancing immediate taxiing penalties against future gate availability and queue overflows.
 \end{itemize}
 
 These uncertainties and geometric constraints motivate the use of stochastic sequential decision-making frameworks that can look beyond immediate greedy assignments to optimize long-term operational stability.
