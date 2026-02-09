@@ -6,12 +6,10 @@ PROJECT CONTEXT
 The project studies stochastic airport operations (gate assignment / scheduling under uncertainty)
 using Markov Decision Processes (MDPs) and Approximate Dynamic Programming (ADP).
 
-The goal is to:
-- Model airport scheduling problems as explicit MDPs
-- Generate state-transition trajectories via simulation (not learning)
-- Study automatic state representations / basis functions for ADP
-- Compare handcrafted vs automatically generated features
-- Maintain interpretability, safety awareness, and mathematical clarity
+Unlike generic queueing models, this project solves a realistic variant involving:
+- **Schedule-Based Arrivals**: Arrivals follow a master schedule with stochastic perturbations (noise), creating structural peaks and valleys in the state space.
+- **Heterogeneous Resources**: Service times are spatially constrained by **runway-to-gate topology** (variable taxiing penalties), making some gates strictly more "expensive" than others.
+- **Goal**: Compare handcrafted vs. automatically generated basis functions (PVFs, Successor Features) for Linear Value Function Approximation.
 
 This is NOT a deep reinforcement learning project.
 Neural networks, if used at all, are limited to representation learning (not control).
@@ -19,57 +17,51 @@ Neural networks, if used at all, are limited to representation learning (not con
 DOMAIN
 ------
 Airport-first focus:
-- Gate assignment (primary)
-- Possibly runway sequencing or rescheduling later
-- Disruptions, stochastic delays, congestion, hard constraints
-
-Hospital scheduling is a conceptual analog but not the main domain.
+- **Gate Assignment** (primary)
+- **Runway Constraints**: Planes land on pre-determined runways, creating variable service times based on distance to specific gates.
+- **Disruptions**: Stochastic delays, schedule slides, and congestion.
 
 TECHNICAL FOUNDATIONS
 ---------------------
-- Finite-horizon, time-discretized MDPs
-- Explicit state, action, transition, and reward definitions
-- Simulation-based trajectory generation under simple baseline policies
-- Approximate Dynamic Programming (value-based)
-- No policy-gradient or black-box RL methods
+- **Finite-horizon MDPs**: Explicit state ($t$, $\mathbf{g}$, $\mathbf{q}$), action, and reward definitions.
+- **Arrival Process**: Modeled as $A_k = T^{sched}_k + \delta_k$ (Schedule + Noise), not pure Poisson.
+- **Graph Construction**: Building **Time-Collapsed** or **Kernel-based** state-transition graphs to avoid "Directed Acyclic Graph (DAG)" pitfalls and ensure spectral connectivity.
+- **Approximate Dynamic Programming**: Linear VFA with Temporal Difference learning.
 
 FEATURE / REPRESENTATION METHODS OF INTEREST
 --------------------------------------------
-- Handcrafted features (baseline)
-- Proto-Value Functions (spectral graph Laplacian eigenfunctions)
-- Successor features
-- State aggregation via clustering
-- Possibly autoencoders used ONLY to learn state embeddings (no decision-making)
+- **Handcrafted features** (baseline domain heuristics)
+- **Proto-Value Functions** (Eigenfunctions of the *time-collapsed* graph Laplacian)
+- **Successor features** (Predicting future runway/gate usage)
+- **State aggregation** via spectral clustering
 
 PROJECT CONSTRAINTS
 -------------------
-- The user is intentionally minimizing AI usage for core reasoning and coding
+- The user is intentionally minimizing AI usage for core reasoning and coding.
 - Assistance should focus on:
   * conceptual clarity
-  * mathematical formulation
+  * mathematical formulation (e.g., spectral graph theory consistency)
   * design decisions
   * verification and sanity checks
 - Do NOT:
   * write full solutions unprompted
   * auto-complete large code blocks
-  * replace mathematical derivations with heuristics
+  * replace mathematical derivations with black-box heuristics
 
 CURRENT PROJECT STAGE
 ---------------------
-Stage 1: MDP formulation
+Stage 1: MDP formulation (Completed)
 - Gate assignment MDP defined with:
-  * time
-  * gate occupancy
-  * waiting flights
-  * stochastic arrivals and service times
+  * State: Time, Gate Occupancy, Queue (with **runway origin**)
+  * Dynamics: **Heterogeneous service times** (Base + Taxi Penalty) and **Schedule-based arrivals**
 
-Stage 2: Trajectory generation
-- Simulate trajectories using simple policies (random, greedy)
-- Collect state transitions for representation learning
+Stage 2: Trajectory generation (In Progress)
+- Simulate episodes using **Representative Schedules** (e.g., Morning Rush, Delayed Evening)
+- Collect state transitions to capture operational "interaction dynamics"
 
 NEXT STAGES (ROADMAP)
 --------------------
-Stage 3: Construct state-transition graph from trajectories
+Stage 3: Construct **Time-Collapsed** state-transition graph (to ensure recurrent states)
 Stage 4: Automatic basis construction (PVFs, successor features)
 Stage 5: ADP with linear value approximation
 Stage 6: Evaluation under congestion and disruptions
@@ -77,11 +69,11 @@ Stage 7: Interpretation, robustness, and scalability analysis
 
 EXPECTED ASSISTANCE STYLE
 -------------------------
-- Be precise and mathematical
-- Ask clarifying questions only when genuinely necessary
-- Prefer equations, definitions, and structured reasoning
-- When suggesting methods, explain WHY they apply here
-- Assume graduate-level knowledge of probability, linear algebra, and MDPs
+- Be precise and mathematical.
+- Ask clarifying questions only when genuinely necessary.
+- Prefer equations, definitions, and structured reasoning.
+- When suggesting methods, explain WHY they apply to **schedule-based** or **topologically constrained** problems.
+- Assume graduate-level knowledge of probability, linear algebra, and MDPs.
 
 When responding, always respect the project philosophy:
-MDP first, math first, structure first.
+**MDP first, math first, structure first.**
