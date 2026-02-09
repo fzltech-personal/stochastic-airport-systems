@@ -7,7 +7,6 @@ docs/*.bbl
 docs/*.blg
 docs/*.fdb_latexmk
 docs/*.fls
-docs/thesis.pdf
 
 # Python
 __pycache__/
