@@ -6,29 +6,33 @@
 \begin{definition}[Finite-Horizon MDP]
 	A finite-horizon Markov Decision Process is a tuple $(\mathcal{S}, \mathcal{A}, P, R, T)$ where:
 	\begin{itemize}
-		\item $\mathcal{S}$ is a finite state space
-		\item $\mathcal{A}$ is a finite action space
-		\item $P: \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to [0,1]$ is the transition probability function
-		\item $R: \mathcal{S} \times \mathcal{A} \to \R$ is the reward function
-		\item $T \in \mathbb{N}$ is the time horizon
+		\item $\mathcal{S}$ is a potentially high-dimensional state space (including continuous or discrete components).
+		\item $\mathcal{A}$ is a finite action space.
+		\item $P: \mathcal{S} \times \mathcal{A} \times \mathcal{S} \to [0,1]$ is the transition probability function.
+		\item $R: \mathcal{S} \times \mathcal{A} \to \mathbb{R}$ is the reward function.
+		\item $T \in \mathbb{N}$ is the finite time horizon.
 	\end{itemize}
 \end{definition}
 
-A policy $\pi: \mathcal{S} \times \{0, \ldots, T-1\} \to \mathcal{A}$ maps states and time to actions. The value function under policy $\pi$ is:
+A policy $\pi: \mathcal{S} \times \{0, \ldots, T-1\} \to \mathcal{A}$ maps states and time to actions.
+The value function under policy $\pi$ is defined as the expected cumulative reward:
 %
 \begin{equation}
-	V^\pi_t(s) = \E^\pi\left[\sum_{k=t}^{T-1} R(s_k, a_k) \mid s_t = s\right]
+	V^\pi_t(s) = \mathbb{E}^\pi\left[\sum_{k=t}^{T-1} \gamma^{k-t} R(s_k, a_k) \mid s_t = s\right]
 \end{equation}
+%
+where $\gamma \in [0, 1]$ is a discount factor (often $\gamma=1$ for pure finite-horizon problems).
 
 The optimal value function satisfies the Bellman optimality equation:
 %
 \begin{equation}
-	V^*_t(s) = \max_{a \in \mathcal{A}} \left\{ R(s,a) + \sum_{s' \in \mathcal{S}} P(s'|s,a) V^*_{t+1}(s') \right\}
+	V^*_t(s) = \max_{a \in \mathcal{A}} \left\{ R(s,a) + \gamma \sum_{s' \in \mathcal{S}} P(s'|s,a) V^*_{t+1}(s') \right\}
 \end{equation}
 
 \section{Approximate Dynamic Programming}
 
-When the state space is large, exact dynamic programming becomes computationally intractable. Approximate Dynamic Programming addresses this through value function approximation.
+When the state space is large (e.g., exponential in the number of gates and queue size), exact dynamic programming becomes computationally intractable due to the "curse of dimensionality".
+Approximate Dynamic Programming (ADP) addresses this by replacing the exact value table with a parametric approximation.
 
 \subsection{Linear Value Function Approximation}
 
@@ -38,33 +42,32 @@ We approximate the value function as a linear combination of basis functions:
 	\hat{V}(s; \theta) = \sum_{i=1}^k \theta_i \phi_i(s) = \phi(s)^\top \theta
 \end{equation}
 %
-where $\phi: \mathcal{S} \to \R^k$ maps states to feature vectors and $\theta \in \R^k$ are learnable weights.
+where $\phi: \mathcal{S} \to \mathbb{R}^k$ maps states to a feature vector and $\theta \in \mathbb{R}^k$ are learnable weights. The choice of basis functions $\phi(s)$ is critical to the success of the approximation.
 
 \subsection{Temporal Difference Learning}
 
-The TD(0) update for linear VFA is:
+To learn the weights $\theta$, we employ Temporal Difference (TD) learning. The TD(0) update rule for linear VFA is:
 %
 \begin{equation}
-	\theta \leftarrow \theta + \alpha \left[r + \hat{V}(s'; \theta) - \hat{V}(s; \theta)\right] \phi(s)
+	\theta \leftarrow \theta + \alpha \left[r + \gamma \hat{V}(s'; \theta) - \hat{V}(s; \theta)\right] \phi(s)
 \end{equation}
 %
-where $\alpha > 0$ is the learning rate.
+where $\alpha > 0$ is the learning rate and $r + \gamma \hat{V}(s'; \theta)$ serves as the target value.
 
 \section{Proto-Value Functions}
 
-Proto-Value Functions \citep{mahadevan2007proto} provide a task-independent basis for value function approximation derived from the topology of the state space.
+Proto-Value Functions (PVFs) provide a task-independent basis for value function approximation derived from the intrinsic geometry of the state space. They generalize Fourier analysis to irregular graphs, capturing global smooth structures (clusters, bottlenecks) that local features might miss.
 
 \subsection{Graph Laplacian}
 
-Given a weighted graph $G = (V, E, W)$ representing state transitions:
+Given a weighted undirected graph $G = (V, E, W)$ representing the state space topology:
 %
 \begin{equation}
 	L = D - W
 \end{equation}
 %
-where $W$ is the weighted adjacency matrix and $D$ is the degree matrix with $D_{ii} = \sum_j W_{ij}$.
-
-The normalized Laplacian is:
+where $W$ is the weighted adjacency matrix and $D$ is the diagonal degree matrix with $D_{ii} = \sum_j W_{ij}$.
+The normalized Laplacian is defined as:
 %
 \begin{equation}
 	\mathcal{L} = I - D^{-1/2} W D^{-1/2}
@@ -72,42 +75,44 @@ The normalized Laplacian is:
 
 \subsection{Spectral Basis Functions}
 
-The eigenvectors of $\mathcal{L}$ corresponding to the smallest eigenvalues form a smooth basis over the state space. Let $0 = \lambda_1 \leq \lambda_2 \leq \cdots \leq \lambda_{|\mathcal{S}|}$ be the eigenvalues with eigenvectors $v_1, \ldots, v_{|\mathcal{S}|}$.
-
-The first $k$ non-trivial eigenvectors $\{v_2, \ldots, v_{k+1}\}$ serve as PVFs:
+The eigenvectors of $\mathcal{L}$ serve as the basis functions. Let $0 = \lambda_1 \leq \lambda_2 \leq \cdots \leq \lambda_{|\mathcal{S}|}$ be the eigenvalues with corresponding eigenvectors $v_1, \ldots, v_{|\mathcal{S}|}$.
+The first $k$ non-trivial eigenvectors (those corresponding to the smallest non-zero eigenvalues) form the PVF basis:
 %
 \begin{equation}
 	\phi_i(s) = v_{i+1}(s), \quad i = 1, \ldots, k
 \end{equation}
+These functions are "smooth" on the graph, meaning values vary slowly between connected states, making them ideal for approximating value functions that exhibit similar smoothness.
 
-\subsection{Interpretation}
+\subsection{Graph Construction for Directed Processes}
 
-PVFs capture the "geometry" of the state space:
-\begin{itemize}
-	\item Lower eigenvalues correspond to smoother functions over the graph
-	\item They identify bottlenecks and clusters in state-transition structure
-	\item Task-independent: derived from dynamics, not rewards
-\end{itemize}
+A critical challenge in applying PVFs to finite-horizon MDPs is the directed nature of time. A naive state-transition graph where edges follow $t \to t+1$ yields a Directed Acyclic Graph (DAG). Symmetrizing a DAG often results in trivial eigenvectors that simply index time rather than capturing operational geometry.
+
+To address this, we construct the graph using one of two methods:
+\begin{enumerate}
+	\item \textbf{Time-Collapsed Graph:} We define nodes as unique resource configurations $(\mathbf{g}, \mathbf{q})$ independent of absolute time. Edges represent valid transitions between configurations, allowing the discovery of cyclic structures and recurrent operational states.
+	\item \textbf{Kernel-based Adjacency:} We define edge weights based on state similarity rather than pure transitions. For states $s_i, s_j$, the weight $W_{ij}$ is given by a kernel function (e.g., Gaussian kernel on queue lengths and gate occupancy), ensuring a connected topology that reflects functional similarity.
+\end{enumerate}
 
 \section{Successor Features}
 
-Successor features \citep{dayan1993improving, barreto2017successor} represent states by their expected future occupancy.
+Successor Features (SFs) offer an alternative representation based on predictive dynamics. They generalize the Successor Representation to high-dimensional function approximation.
 
-\begin{definition}[Successor Representation]
-	The successor representation under policy $\pi$ with discount factor $\gamma$ is:
+\begin{definition}[Successor Features]
+	Given a feature map $\phi(s) \in \mathbb{R}^d$, the successor features $\psi^\pi(s)$ under policy $\pi$ are the expected discounted future accumulation of feature observations:
 	%
 	\begin{equation}
-		\psi^\pi(s) = \E^\pi\left[\sum_{t=0}^\infty \gamma^t \mathbb{I}[s_t = s] \mid s_0 = s\right]
+		\psi^\pi(s) = \mathbb{E}^\pi\left[\sum_{t=0}^\infty \gamma^t \phi(s_t) \mid s_0 = s\right]
 	\end{equation}
 \end{definition}
 
-Successor features generalize this to feature expectations:
+If the reward function can be approximated linearly as $R(s) \approx \phi(s)^\top \mathbf{w}$, then the value function can be computed exactly as:
 %
 \begin{equation}
-	\psi^\pi(s) = \E^\pi\left[\sum_{t=0}^\infty \gamma^t \phi(s_t) \mid s_0 = s\right]
+	V^\pi(s) = \psi^\pi(s)^\top \mathbf{w}
 \end{equation}
 
-These can be learned via TD updates and enable transfer learning across tasks with different reward functions.
+\subsection{Utility for Transfer Learning}
+SFs decouple the environment's dynamics (captured in $\psi^\pi$) from the task goals (captured in $\mathbf{w}$). In the context of airport operations, this allows an agent to learn the "physics" of gate congestion and runway usage once (via $\psi^\pi$) and rapidly adapt to changing operational priorities (e.g., shifting focus from minimizing delay to maximizing gate utilization) by simply updating the weight vector $\mathbf{w}$ without retraining the entire representation.
 
 \section{Related Work}
 

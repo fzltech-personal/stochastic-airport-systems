@@ -7,6 +7,9 @@ docs/*.bbl
 docs/*.blg
 docs/*.fdb_latexmk
 docs/*.fls
+docs/*.toc
+docs/*.lof
+docs/*.lot
 
 # Python
 __pycache__/

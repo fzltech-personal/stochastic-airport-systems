@@ -3,22 +3,30 @@
 
 \section{Problem Description}
 
-An airport has $G$ gates available for aircraft turnaround operations. Flights arrive stochastically over a finite time horizon $T$. Each flight requires assignment to a gate for a random service duration (disembarkation, cleaning, refueling, boarding). The objective is to minimize waiting times and maximize throughput while respecting operational constraints.
+An airport has $G$ gates available for aircraft turnaround operations and $R$ runways for arrivals.
+Flights arrive according to a stochastic schedule over a finite time horizon $T$. Each flight lands on a specific runway and requires assignment to a gate for a duration that depends on both the aircraft type and the taxiing distance between the runway and the assigned gate.
+The objective is to minimize waiting times and queue overflows while maximizing throughput.
 
 \section{State Space}
 
 The state at time $t$ is a tuple $s_t = (t, \mathbf{g}_t, \mathbf{q}_t)$ where:
 
 \begin{itemize}
-	\item $t \in \{0, 1, \ldots, T\}$: current time index
-	\item $\mathbf{g}_t \in \{0, 1, \ldots, S_{\max}\}^G$: gate occupancy vector
+	\item $t \in \{0, 1, \ldots, T\}$: current time index.
+	\item $\mathbf{g}_t \in \{0, 1, \ldots, S_{\max}\}^G$: gate occupancy vector.
 	\begin{itemize}
-		\item $g_i = 0$: gate $i$ is available
-		\item $g_i = s > 0$: gate $i$ occupied, $s$ time steps remaining
+		\item $g_i = 0$: gate $i$ is available.
+		\item $g_i = s > 0$: gate $i$ occupied, $s$ time steps remaining.
 	\end{itemize}
-	\item $\mathbf{q}_t$: queue of waiting flights
+	\item $\mathbf{q}_t$: queue of waiting flights.
 	\begin{itemize}
-		\item Each flight characterized by: arrival time, gate type compatibility, priority
+		\item Each flight $f$ is a tuple $(T_f^{\text{arr}}, r_f, \text{type}_f, p_f)$, where:
+		\begin{itemize}
+			\item $T_f^{\text{arr}}$: Actual arrival time.
+			\item $r_f \in \{1, \ldots, R\}$: The runway the flight landed on.
+			\item $\text{type}_f$: Aircraft type (determining base service time).
+			\item $p_f$: Priority class.
+		\end{itemize}
 	\end{itemize}
 \end{itemize}
 
@@ -30,7 +38,7 @@ At each time step, the decision-maker selects an action $a_t \in \mathcal{A}_t$ 
 	\mathcal{A}_t = \{(f, g) : f \in \mathbf{q}_t, g \in \text{Available}(\mathbf{g}_t), \text{Compatible}(f, g)\} \cup \{\text{wait}\}
 \end{equation}
 
-An action $(f, g)$ assigns waiting flight $f$ to available gate $g$. The "wait" action defers assignment.
+An action $(f, g)$ assigns waiting flight $f$ to available gate $g$. The "wait" action defers assignment to the next time step.
 
 \section{Transition Dynamics}
 
@@ -42,7 +50,10 @@ The transition from $s_t$ to $s_{t+1}$ involves:
 	t \to t+1
 \end{equation}
 
-\subsection{Gate Occupancy Updates}
+\subsection{Gate Occupancy Updates (Heterogeneous Service)}
+
+Gate occupancy is determined by the aircraft's base turnaround time plus a penalty for taxiing distance.
+Let $\Delta(r, g)$ be a deterministic distance matrix representing the taxiing time from runway $r$ to gate $g$.
 
 For each gate $i$:
 %
@@ -50,31 +61,33 @@ For each gate $i$:
 	g_i^{t+1} = \begin{cases}
 		s-1 & \text{if } g_i^t = s > 1 \\
 		0 & \text{if } g_i^t = 1 \text{ (service completes)} \\
-		\text{Service}(f) & \text{if action assigns flight } f \text{ to gate } i
+		\text{BaseService}(\text{type}_f) + \Delta(r_f, i) & \text{if action assigns flight } f \text{ to gate } i
 	\end{cases}
 \end{equation}
 %
-where $\text{Service}(f) \sim P_{\text{service}}$ is a random service duration.
+where $\text{BaseService}(\text{type}_f)$ is a random variable sampled from the distribution specific to the aircraft type.
 
-\subsection{Stochastic Arrivals}
+\subsection{Stochastic Schedule-Based Arrivals}
 
-New flights arrive according to a Poisson or scheduled process:
+Arrivals are modeled as a perturbed schedule rather than a pure Poisson process.
+
+\noindent Let $\mathcal{T} = \{T_1^{\text{sched}}, T_2^{\text{sched}}, \ldots, T_N^{\text{sched}}\}$ be the master schedule of flight arrival times. The actual arrival time $A_k$ for the $k$-th flight is:
 %
 \begin{equation}
-	\text{NewArrivals}_{t+1} \sim P_{\text{arrival}}(t)
+	A_k = T_k^{\text{sched}} + \delta_k
 \end{equation}
+%
+where $\delta_k$ is a stochastic noise term (e.g., $\delta_k \sim \mathcal{N}(0, \sigma^2)$ or an Erlang delay distribution).
 
 \subsection{Queue Updates}
 
 \begin{equation}
-	\mathbf{q}_{t+1} = (\mathbf{q}_t \setminus \{f\}) \cup \text{NewArrivals}_{t+1}
+	\mathbf{q}_{t+1} = (\mathbf{q}_t \setminus \{f_{\text{assigned}}\}) \cup \{k : A_k = t+1\}
 \end{equation}
-%
-where $f$ is the assigned flight (if any).
 
 \section{Reward Function}
 
-The immediate reward penalizes waiting and encourages throughput:
+The immediate reward penalizes waiting and encourages efficient assignment:
 %
 \begin{equation}
 	R(s_t, a_t) = -c_{\text{wait}} \cdot |\mathbf{q}_t| - c_{\text{overflow}} \cdot \mathbb{I}[|\mathbf{q}_t| > Q_{\max}] + c_{\text{assign}} \cdot \mathbb{I}[\text{assignment made}]
@@ -83,15 +96,15 @@ The immediate reward penalizes waiting and encourages throughput:
 \section{Assumptions}
 
 \begin{assumption}
-	Service times are independent and identically distributed random variables with finite support.
+	Base service times are independent random variables with finite support, dependent on aircraft type.
 \end{assumption}
 
 \begin{assumption}
-	Arrival processes are stationary within each time period.
+	The runway $r_f$ for each flight is predetermined by external air traffic control and is observed upon arrival.
 \end{assumption}
 
 \begin{assumption}
-	Gates are homogeneous (can be relaxed to gate types: domestic/international, wide-body/narrow-body).
+	Gates are heterogeneous with respect to accessibility. The total gate occupation time includes a taxiing penalty $\Delta(r, g)$ which makes certain gate-runway combinations strictly more costly than others.
 \end{assumption}
 
 \section{Complexity Analysis}
@@ -99,9 +112,7 @@ The immediate reward penalizes waiting and encourages throughput:
 The state space size is:
 %
 \begin{equation}
-	|\mathcal{S}| \approx T \cdot (S_{\max} + 1)^G \cdot \binom{F_{\max} + Q_{\max}}{Q_{\max}}
+	|\mathcal{S}| \approx T \cdot (S_{\max} + \max(\Delta))^G \cdot \binom{F_{\max} + Q_{\max}}{Q_{\max}}
 \end{equation}
 %
-where $F_{\max}$ is the maximum number of flight types and $Q_{\max}$ is the queue capacity.
-
-For realistic parameters ($G=10$, $S_{\max}=10$, $T=100$, $Q_{\max}=20$), exact dynamic programming is intractable, motivating the need for approximation.
+The introduction of the distance matrix $\Delta$ increases the effective support of the service time distribution, but does not increase the dimensionality of the state space, preserving the feasibility of the ADP approach.

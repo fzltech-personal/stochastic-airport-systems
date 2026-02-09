@@ -2,48 +2,64 @@
 \label{chap:introduction}
 
 \section{Motivation}
-Airport operations face increasing complexity due to growing air traffic volumes, resource constraints, and operational uncertainties. Gate assignment—the problem of allocating arriving aircraft to terminal gates—is a critical scheduling task that affects passenger experience, airline efficiency, and airport throughput. 
+Airport operations face increasing complexity due to growing air traffic volumes, resource constraints, and operational uncertainties.
+Gate assignment—the problem of allocating arriving aircraft to terminal gates—is a critical scheduling task that directly affects passenger experience, airline efficiency, and airport throughput.
 
-Traditional approaches to gate assignment often rely on deterministic optimization or heuristic rules. However, real-world operations involve significant stochastic elements: uncertain arrival times due to weather and air traffic control delays, variable turnaround service times, and unpredictable disruptions. These uncertainties motivate the use of stochastic sequential decision-making frameworks.
+Traditional approaches to gate assignment often rely on deterministic optimization or heuristic rules, assuming fixed schedules and homogeneous resources.
+However, real-world operations involve significant stochastic elements and physical constraints:
+\begin{itemize}
+	\item **Uncertain Arrivals:** Flights rarely arrive exactly at their scheduled times due to weather, air traffic control holds, and upstream delays.
+	\item **Heterogeneous Resources:** Gates are not identical; varying distances between multiple runways and terminal gates create significant differences in taxiing times and total gate occupancy durations.
+	\item **Complex Constraints:** Assessing the "cost" of an assignment requires balancing immediate taxiing penalties against future gate availability and queue overflows.
+\end{itemize}
+
+These uncertainties and geometric constraints motivate the use of stochastic sequential decision-making frameworks that can look beyond immediate greedy assignments to optimize long-term operational stability.
 
 \section{Problem Statement}
 
 We address the following research question:
 
 \begin{quote}
-	\textit{How can we automatically construct effective state representations for Approximate Dynamic Programming in stochastic airport gate assignment, and how do learned representations compare to handcrafted domain features in terms of approximation quality, interpretability, and scalability?}
+	\textit{How can we automatically construct effective state representations for Approximate Dynamic Programming in stochastic airport gate assignment, and can these learned representations capture the complex spatiotemporal structure of schedule-based operations better than handcrafted heuristics?}
 \end{quote}
+
+Specifically, we investigate whether spectral graph theory can automatically identify "bottleneck" situations in airport operations—such as the interplay between specific runway arrivals and gate congestion—without explicitly programming these relationships.
 
 \section{Approach}
 
 Our methodology consists of the following stages:
 
 \begin{enumerate}
-	\item \textbf{MDP Formulation}: Define the gate assignment problem as a discrete-time, finite-horizon MDP with explicit state, action, transition, and reward components.
-	
-	\item \textbf{Trajectory Generation}: Simulate episodes under simple baseline policies (random assignment, greedy assignment) to collect state-transition data.
-	
-	\item \textbf{Graph Construction}: Build a weighted state-transition graph from observed trajectories, where nodes represent states and edge weights reflect empirical transition probabilities.
-	
-	\item \textbf{Representation Learning}: Construct basis functions via:
+	\item \textbf{MDP Formulation}: We define the gate assignment problem as a discrete-time, finite-horizon Markov Decision Process (MDP). Unlike generic queueing models, our formulation explicitly incorporates:
 	\begin{itemize}
-		\item Proto-Value Functions (PVFs): eigenvectors of the graph Laplacian
-		\item Successor Features: expected discounted state occupancy
-		\item Handcrafted Features: domain-specific engineered features (baseline)
+		\item **Schedule-based Arrivals:** Arrivals follow a master schedule with stochastic deviations (noise), rather than a pure Poisson process.
+		\item **Physical Topology:** Service times include variable taxiing penalties based on the distance between the assigned runway and the specific gate (heterogeneous service times).
 	\end{itemize}
 	
-	\item \textbf{ADP with Linear VFA}: Apply temporal difference learning to estimate value functions using each representation, compare performance.
+	\item \textbf{Trajectory Generation}: We simulate episodes using representative daily schedules under baseline policies (e.g., random, greedy) to collect state-transition data. This captures the "interaction dynamics" of the airport under realistic loads.
 	
-	\item \textbf{Evaluation}: Test learned policies under congestion and disruption scenarios, analyze approximation quality and robustness.
+	\item \textbf{Graph Construction}: We construct a weighted **state-transition graph** from the observed trajectories.
+	\textit{Note:} This graph represents the abstract "space of operational situations" (states), not the physical map of the airport. Nodes represent unique configurations of queues and gate occupancies, and edges represent possible transitions between them.
+	
+	\item \textbf{Representation Learning}: We construct basis functions to approximate the Value Function via:
+	\begin{itemize}
+		\item \textbf{Proto-Value Functions (PVFs):} Eigenvectors of the graph Laplacian, which capture the global geometry and bottlenecks of the state space.
+		\item \textbf{Successor Features:} Representations based on the expected future occupancy of specific state features (e.g., predicting future congestion for a specific runway).
+		\item \textbf{Handcrafted Features:} Standard domain-specific engineering (e.g., "number of free gates") serving as a baseline.
+	\end{itemize}
+	
+	\item \textbf{ADP with Linear VFA}: We apply Temporal Difference (TD) learning to estimate the value of each state using the learned representations, effectively teaching the agent to recognize and avoid "bad" geometric configurations.
+	
+	\item \textbf{Evaluation}: We test the learned policies under varying congestion levels and disruption scenarios (e.g., runway closures), measuring approximation quality, throughput, and robustness.
 \end{enumerate}
 
 \section{Contributions}
 
 \begin{itemize}
-	\item A mathematically rigorous MDP formulation of stochastic gate assignment suitable for simulation and analysis
-	\item Empirical comparison of automatic vs. handcrafted state representations in a safety-critical operational domain
-	\item Analysis of interpretability and scalability trade-offs in representation learning for ADP
-	\item Open-source implementation enabling reproducibility and extension
+	\item A rigorous MDP formulation of gate assignment that bridges the gap between abstract queueing theory and realistic airport constraints (schedules, runway distances).
+	\item An empirical evaluation of spectral geometric methods (PVFs) in a high-dimensional resource allocation domain.
+	\item A comparative analysis of "interpretable" automatic features vs. human-engineered heuristics for safety-critical operations.
+	\item An open-source simulation framework enabling reproducible research in stochastic airport operations.
 \end{itemize}
 
 \section{Thesis Outline}
@@ -51,12 +67,12 @@ Our methodology consists of the following stages:
 The remainder of this thesis is organized as follows:
 
 \begin{itemize}
-	\item \textbf{Chapter~\ref{chap:background}}: Background on MDPs, ADP, and spectral methods
-	\item \textbf{Chapter~\ref{chap:mdp}}: Formal MDP formulation of gate assignment
-	\item \textbf{Chapter~\ref{chap:simulation}}: Trajectory generation methodology
-	\item \textbf{Chapter~\ref{chap:representation}}: State representation methods
-	\item \textbf{Chapter~\ref{chap:adp}}: ADP implementation with linear VFA
-	\item \textbf{Chapter~\ref{chap:experiments}}: Experimental design
-	\item \textbf{Chapter~\ref{chap:results}}: Results and analysis
-	\item \textbf{Chapter~\ref{chap:conclusion}}: Conclusions and future work
+	\item \textbf{Chapter~\ref{chap:background}}: Background on MDPs, ADP, and spectral graph theory.
+	\item \textbf{Chapter~\ref{chap:mdp}}: Formal MDP formulation, including the schedule-based arrival process and runway-dependent transition dynamics.
+	\item \textbf{Chapter~\ref{chap:simulation}}: Methodology for trajectory generation and handling disjoint state spaces.
+	\item \textbf{Chapter~\ref{chap:representation}}: Derivation of Proto-Value Functions and Successor Features for the gate assignment graph.
+	\item \textbf{Chapter~\ref{chap:adp}}: Implementation of the Approximate Dynamic Programming algorithm.
+	\item \textbf{Chapter~\ref{chap:experiments}}: Experimental design and scenario definitions.
+	\item \textbf{Chapter~\ref{chap:results}}: Analysis of policy performance and feature interpretability.
+	\item \textbf{Chapter~\ref{chap:conclusion}}: Conclusions and directions for future work.
 \end{itemize}
