@@ -20,11 +20,13 @@ The state at time $t$ is a tuple $s_t = (t, \mathbf{g}_t, \mathbf{q}_t)$ where:
 	\end{itemize}
 	\item $\mathbf{q}_t$: queue of waiting flights.
 	\begin{itemize}
-		\item Each flight $f$ is a tuple $(T_f^{\text{arr}}, r_f, \text{type}_f, p_f)$, where:
+		\item Each flight $f$ is a tuple $(T_f^{\text{arr}}, r_f, \tau_f, p_f)$, where:
 		\begin{itemize}
 			\item $T_f^{\text{arr}}$: Actual arrival time.
 			\item $r_f \in \{1, \ldots, R\}$: The runway the flight landed on.
-			\item $\text{type}_f$: Aircraft type (determining base service time).
+			\item $\tau_f \in \mathcal{T}$: Aircraft type from a finite set 
+			$\mathcal{T} = \{\text{narrow-body}, \text{wide-body}, 
+			\text{regional}, \ldots\}$.
 			\item $p_f$: Priority class.
 		\end{itemize}
 	\end{itemize}
@@ -35,10 +37,49 @@ The state at time $t$ is a tuple $s_t = (t, \mathbf{g}_t, \mathbf{q}_t)$ where:
 At each time step, the decision-maker selects an action $a_t \in \mathcal{A}_t$ where:
 %
 \begin{equation}
-	\mathcal{A}_t = \{(f, g) : f \in \mathbf{q}_t, g \in \text{Available}(\mathbf{g}_t), \text{Compatible}(f, g)\} \cup \{\text{wait}\}
+	\mathcal{A}_t = \{(f, g) : f \in \mathbf{q}_t, g \in \text{Available}(\mathbf{g}_t), 
+	\text{Compatible}(\tau_f, g)\} \cup \{\text{wait}\}
 \end{equation}
 
 An action $(f, g)$ assigns waiting flight $f$ to available gate $g$. The "wait" action defers assignment to the next time step.
+\subsection{Aircraft-Gate Compatibility}
+
+Gates are heterogeneous not only in spatial accessibility but also in their 
+suitability for different aircraft types.
+
+\paragraph{Hard Constraints (Physical Compatibility):}
+Define a binary compatibility matrix $\mathbf{C} \in \{0,1\}^{|\mathcal{T}| \times G}$ 
+where:
+%
+\begin{equation}
+	C_{\tau,g} = \begin{cases}
+		1 & \text{if aircraft type } \tau \text{ can physically use gate } g \\
+		0 & \text{otherwise (structural incompatibility)}
+	\end{cases}
+\end{equation}
+%
+The compatibility constraint in the action space enforces 
+$\text{Compatible}(\tau_f, g) \equiv C_{\tau_f, g} = 1$.
+
+Examples of structural incompatibilities include:
+\begin{itemize}
+	\item Wide-body aircraft requiring specific jet bridge configurations
+	\item Regional jets unable to use international gates with oversized aprons
+	\item Cargo aircraft restricted to remote stands
+\end{itemize}
+
+\paragraph{Soft Preferences (Operational Efficiency):}
+Beyond physical constraints, certain aircraft-gate pairings are operationally 
+preferred. Define a preference matrix $\mathbf{P} \in \mathbb{R}^{|\mathcal{T}| \times G}$ 
+where $P_{\tau,g} \geq 0$ represents the operational benefit of assigning type 
+$\tau$ to gate $g$.
+
+Preferences may reflect:
+\begin{itemize}
+	\item Airline hub assignments (same carrier flights clustered for transfers)
+	\item Proximity to customs/immigration for international flights
+	\item Ground equipment positioning and crew efficiency
+\end{itemize}
 
 \section{Transition Dynamics}
 
@@ -61,7 +102,8 @@ For each gate $i$:
 	g_i^{t+1} = \begin{cases}
 		s-1 & \text{if } g_i^t = s > 1 \\
 		0 & \text{if } g_i^t = 1 \text{ (service completes)} \\
-		\text{BaseService}(\text{type}_f) + \Delta(r_f, i) & \text{if action assigns flight } f \text{ to gate } i
+		\text{BaseService}(\tau_f) + \Delta(r_f, i) & \text{if action assigns 
+			flight } f \text{ to gate } i
 	\end{cases}
 \end{equation}
 %
@@ -90,21 +132,37 @@ where $\delta_k$ is a stochastic noise term (e.g., $\delta_k \sim \mathcal{N}(0,
 The immediate reward penalizes waiting and encourages efficient assignment:
 %
 \begin{equation}
-	R(s_t, a_t) = -c_{\text{wait}} \cdot |\mathbf{q}_t| - c_{\text{overflow}} \cdot \mathbb{I}[|\mathbf{q}_t| > Q_{\max}] + c_{\text{assign}} \cdot \mathbb{I}[\text{assignment made}]
+	R(s_t, a_t) = -c_{\text{wait}} \cdot |\mathbf{q}_t| 
+	- c_{\text{overflow}} \cdot \mathbb{I}[|\mathbf{q}_t| > Q_{\max}] 
+	+ c_{\text{assign}} \cdot \mathbb{I}[\text{assignment made}]
+	+ \beta \cdot P_{\tau_f, g} \cdot \mathbb{I}[a_t = (f,g)]
 \end{equation}
+where $\beta > 0$ balances the importance of operational preferences against 
+delay minimization. The preference bonus $P_{\tau_f, g}$ is only realized when 
+an assignment $(f,g)$ is made, encouraging the agent to match aircraft to 
+preferred gates when operationally feasible.
 
 \section{Assumptions}
 
 \begin{assumption}
-	Base service times are independent random variables with finite support, dependent on aircraft type.
+	Base service times are independent random variables with finite support, 
+	dependent on aircraft type $\tau_f$. The distribution parameters vary by 
+	type but are known (e.g., narrow-body: $\mathcal{N}(45, 5^2)$ minutes, 
+	wide-body: $\mathcal{N}(90, 10^2)$ minutes).
 \end{assumption}
 
 \begin{assumption}
-	The runway $r_f$ for each flight is predetermined by external air traffic control and is observed upon arrival.
+	The runway $r_f$ and aircraft type $\tau_f$ for each flight are predetermined 
+	by the master schedule and external air traffic control, and are observed 
+	upon arrival.
 \end{assumption}
 
 \begin{assumption}
-	Gates are heterogeneous with respect to accessibility. The total gate occupation time includes a taxiing penalty $\Delta(r, g)$ which makes certain gate-runway combinations strictly more costly than others.
+	Gates are heterogeneous with respect to both spatial accessibility (taxiing 
+	penalties $\Delta(r, g)$) and aircraft compatibility (matrices $\mathbf{C}$, 
+	$\mathbf{P}$). The compatibility matrix $\mathbf{C}$ enforces hard physical 
+	constraints, while the preference matrix $\mathbf{P}$ represents soft 
+	operational efficiencies.
 \end{assumption}
 
 \section{Complexity Analysis}

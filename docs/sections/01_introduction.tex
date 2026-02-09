@@ -11,6 +11,10 @@ However, real-world operations involve significant stochastic elements and physi
 	\item \textbf{Uncertain Arrivals:} Flights rarely arrive exactly at their scheduled times due to weather, air traffic control holds, and upstream delays.
 	\item \textbf{Heterogeneous Resources:} Gates are not identical; varying distances between multiple runways and terminal gates create significant differences in taxiing times and total gate occupancy durations.
 	\item \textbf{Complex Constraints:} Assessing the "cost" of an assignment requires balancing immediate taxiing penalties against future gate availability and queue overflows.
+	\item \textbf{Aircraft-Gate Compatibility:} Gates vary in their suitability for 
+	different aircraft types due to physical constraints (jet bridge configurations, 
+	apron size) and operational preferences (airline hub assignments, passenger 
+	transfer efficiency).
 \end{itemize}
 
 These uncertainties and geometric constraints motivate the use of stochastic sequential decision-making frameworks that can look beyond immediate greedy assignments to optimize long-term operational stability.
@@ -32,13 +36,16 @@ Our methodology consists of the following stages:
 \begin{enumerate}
 	\item \textbf{MDP Formulation}: We define the gate assignment problem as a discrete-time, finite-horizon Markov Decision Process (MDP). Unlike generic queueing models, our formulation explicitly incorporates:
 	\begin{itemize}
-		\item **Schedule-based Arrivals:** Arrivals follow a master schedule with stochastic deviations (noise), rather than a pure Poisson process.
-		\item **Physical Topology:** Service times include variable taxiing penalties based on the distance between the assigned runway and the specific gate (heterogeneous service times).
+		\item \textbf{Schedule-based Arrivals:} Arrivals follow a master schedule with stochastic deviations (noise), rather than a pure Poisson process.
+		\item \textbf{Physical Topology}: Service times include variable taxiing penalties 
+		based on the distance between the assigned runway and the specific gate. 
+		Additionally, aircraft-gate compatibility affects both feasibility (hard 
+		constraints) and efficiency (soft preferences).
 	\end{itemize}
 	
 	\item \textbf{Trajectory Generation}: We simulate episodes using representative daily schedules under baseline policies (e.g., random, greedy) to collect state-transition data. This captures the "interaction dynamics" of the airport under realistic loads.
 	
-	\item \textbf{Graph Construction}: We construct a weighted **state-transition graph** from the observed trajectories.
+	\item \textbf{Graph Construction}: We construct a weighted \textbf{state-transition graph} from the observed trajectories.
 	\textit{Note:} This graph represents the abstract "space of operational situations" (states), not the physical map of the airport. Nodes represent unique configurations of queues and gate occupancies, and edges represent possible transitions between them.
 	
 	\item \textbf{Representation Learning}: We construct basis functions to approximate the Value Function via:
