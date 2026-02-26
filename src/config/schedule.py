@@ -50,7 +50,7 @@ class ScheduleConfig:
     3. File reference (loads from JSON/CSV)
     """
 
-    scenario_name: str = field(validator=validators.gt(0))
+    scenario_name: str = field(validator=validators.min_len(1))
     num_flights: int = field(validator=validators.gt(1))
 
     # Mode 1: Explicit flights (from file or inline)

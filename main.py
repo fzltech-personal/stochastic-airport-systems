@@ -6,12 +6,14 @@ Uses configuration files to define scenarios and generate schedules.
 import sys
 from pathlib import Path
 import numpy as np
+from collections import Counter
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from src.config.loader import ScenarioLoader
 from src.mdp.components.schedule_generator import ScheduleGenerator
+from src.utils.visualization import plot_runway_schedule
 
 
 def generate_schedule_from_scenario(scenario_config_path: str, seed: int = 42):
@@ -39,68 +41,58 @@ def generate_schedule_from_scenario(scenario_config_path: str, seed: int = 42):
 
     print("Generating schedule...")
     print(f"  Scenario: {scenario.schedule.scenario_name}")
-    print(f"  Flights: {scenario.schedule.num_flights}")
+    print(f"  Flights: {scenario.schedule.num_flights} (arrivals)")
     print(f"  Pattern: {scenario.schedule.generation_params.get('arrival_pattern', 'unknown')}")
     print(f"  Seed: {seed}\n")
 
     # Initialize RNG
     rng = np.random.default_rng(seed)
 
-    # Extract aircraft type probabilities from scenario
-    aircraft_type_probabilities = {
-        aircraft_type.name: aircraft_type.probability
-        for aircraft_type in scenario.aircraft_types
-    }
-
-    # Generate flights
+    # Generate flights (arrivals and departures)
     flights = ScheduleGenerator.generate(
         scenario_name=scenario.schedule.scenario_name,
         num_flights=scenario.schedule.num_flights,
         generation_params=scenario.schedule.generation_params,
         num_runways=scenario.airport.num_runways,
-        aircraft_type_probabilities=aircraft_type_probabilities,
+        aircraft_types=scenario.aircraft_types,
         rng=rng
     )
 
     # Print summary
     print("Generated flights:")
-    print(f"  Total: {len(flights)}")
-    print(f"  Time range: {min(f.scheduled_time for f in flights)} - {max(f.scheduled_time for f in flights)} minutes")
+    print(f"  Total movements: {len(flights)}")
+    
+    direction_counts = Counter(f.direction for f in flights)
+    print(f"  By direction: {dict(direction_counts)}")
+    
+    if flights:
+        print(f"  Time range: {min(f.scheduled_time for f in flights)} - {max(f.scheduled_time for f in flights)} minutes")
 
     # Count by type
-    type_counts = {}
-    for f in flights:
-        type_counts[f.aircraft_type] = type_counts.get(f.aircraft_type, 0) + 1
-    print(f"  By type: {type_counts}")
+    type_counts = Counter(f.aircraft_type for f in flights)
+    print(f"  By type: {dict(type_counts)}")
 
     # Count by runway
-    runway_counts = {}
-    for f in flights:
-        runway_counts[f.runway] = runway_counts.get(f.runway, 0) + 1
-    print(f"  By runway: {runway_counts}")
+    runway_counts = Counter(f.runway for f in flights)
+    print(f"  By runway: {dict(runway_counts)}")
     print()
 
     # Determine output path
-    # Use the schedule_file path from config if specified, otherwise auto-generate
-    if scenario.schedule.schedule_file:
-        output_path = Path(scenario.schedule.schedule_file)
-    else:
-        # Auto-generate filename based on scenario name
-        safe_name = scenario.schedule.scenario_name.lower().replace(' ', '_').replace('-', '_')
-        output_path = Path(f"data/schedules/synthetic/{safe_name}_{scenario.schedule.num_flights}.json")
+    safe_name = scenario.schedule.scenario_name.lower().replace(' ', '_').replace('-', '_')
+    output_path = Path(f"data/schedules/synthetic/{safe_name}_{scenario.schedule.num_flights}_full.json")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Save metadata
     metadata = {
         'scenario_name': scenario.schedule.scenario_name,
-        'description': f"Generated from scenario: {scenario.name}",
+        'description': f"Generated from scenario: {scenario.name} (arrivals and departures)",
         'num_flights': scenario.schedule.num_flights,
+        'num_movements': len(flights),
         'time_window': scenario.schedule.generation_params.get('time_window'),
         'num_runways': scenario.airport.num_runways,
         'seed': seed,
         'generation_params': scenario.schedule.generation_params,
-        'aircraft_type_probabilities': aircraft_type_probabilities,
         'source_config': str(config_path)
     }
 
@@ -108,8 +100,8 @@ def generate_schedule_from_scenario(scenario_config_path: str, seed: int = 42):
     print(f"✓ Saved schedule to: {output_path}")
 
     # Show first few flights
-    print("\nFirst 5 flights:")
-    for flight in flights[:5]:
+    print("\nFirst 10 movements:")
+    for flight in flights[:10]:
         print(f"  {flight}")
 
     print("\n" + "="*70)
@@ -217,19 +209,16 @@ def load_and_show_flights(scenario_config_path: str, num_flights: int = 10):
         flights = scenario.schedule.get_flights()
 
         print(f"FLIGHTS: {len(flights)} total")
-        print(f"  Time range: {min(f.scheduled_time for f in flights)} - {max(f.scheduled_time for f in flights)} minutes")
+        if flights:
+            print(f"  Time range: {min(f.scheduled_time for f in flights)} - {max(f.scheduled_time for f in flights)} minutes")
 
         # Count by type
-        type_counts = {}
-        for f in flights:
-            type_counts[f.aircraft_type] = type_counts.get(f.aircraft_type, 0) + 1
-        print(f"  By type: {type_counts}")
+        type_counts = Counter(f.aircraft_type for f in flights)
+        print(f"  By type: {dict(type_counts)}")
 
         # Count by runway
-        runway_counts = {}
-        for f in flights:
-            runway_counts[f.runway] = runway_counts.get(f.runway, 0) + 1
-        print(f"  By runway: {runway_counts}")
+        runway_counts = Counter(f.runway for f in flights)
+        print(f"  By runway: {dict(runway_counts)}")
         print()
 
         print(f"First {num_flights} flights:")
@@ -242,6 +231,43 @@ def load_and_show_flights(scenario_config_path: str, num_flights: int = 10):
         print(f"  python main.py --generate-schedule")
 
 
+def generate_and_visualize_schedule(scenario_config_path: str, seed: int = 42):
+    """
+    Generate a synthetic schedule and visualize it.
+    """
+    print(f"Loading scenario: {scenario_config_path}")
+    config_path = Path(scenario_config_path)
+    scenario = ScenarioLoader.from_yaml(config_path)
+    print(f"✓ Loaded scenario: {scenario.name}\n")
+
+    if scenario.schedule.generation_params is None:
+        print("ERROR: Scenario does not specify generation_params.")
+        return
+
+    rng = np.random.default_rng(seed)
+
+    flights = ScheduleGenerator.generate(
+        scenario_name=scenario.schedule.scenario_name,
+        num_flights=scenario.schedule.num_flights,
+        generation_params=scenario.schedule.generation_params,
+        num_runways=scenario.airport.num_runways,
+        aircraft_types=scenario.aircraft_types,
+        rng=rng
+    )
+
+    print(f"Generated {len(flights)} total movements.")
+
+    # Get occupancy time from config for visualization
+    occupancy_time = scenario.schedule.generation_params.get('runway_occupancy_time', 1)
+
+    plot_runway_schedule(
+        flights,
+        num_runways=scenario.airport.num_runways,
+        title=f"Generated Runway Schedule: {scenario.schedule.scenario_name}",
+        block_duration=occupancy_time
+    )
+
+
 def main():
     """Main entry point."""
 
@@ -251,7 +277,7 @@ def main():
 
     # Choose one of:
     # scenario_config = "configs/scenarios/toy_problem.yaml"
-    scenario_config = r"C:\Users\Jeroen\Documents\_programming\fzl\stochastic-airport-systems\configs\scenario\morning_rush.yaml"
+    scenario_config = r"D:\_programming\uni\own-projects\stochastic-airport-systems\configs\scenario\morning_rush.yaml"
     # scenario_config = "configs/scenarios/disrupted_evening.yaml"
 
     # Random seed for reproducibility
@@ -262,13 +288,16 @@ def main():
     # =========================================================================
 
     # Action 1: Inspect the scenario configuration
-    inspect_scenario(scenario_config)
+    # inspect_scenario(scenario_config)
 
     # Action 2: Generate a synthetic schedule from generation_params
     # generate_schedule_from_scenario(scenario_config, seed=seed)
 
     # Action 3: Load and display flights from existing schedule file
     # load_and_show_flights(scenario_config, num_flights=10)
+
+    # Action 4: Generate a schedule and visualize it
+    generate_and_visualize_schedule(scenario_config, seed=seed)
 
 
 if __name__ == '__main__':

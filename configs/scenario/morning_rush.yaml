@@ -34,8 +34,13 @@ compatibility:
 schedule:
   scenario_name: "Morning Peak 6AM-10AM"
   num_flights: 80
-  # Reference to data file (relative to project root)
-  schedule_file: "data/schedules/synthetic/morning_rush_80.json"
+  generation_params:
+    arrival_pattern: "normal_peak"
+    time_window: [360, 600]  # 6 AM to 10 AM
+    peak_time: 480           # 8 AM
+    peak_std: 60
+    runway_assignment: "uniform"
+    runway_occupancy_time: 1 # Minutes runway is busy per movement
 
 noise_model:
   distribution: "normal"

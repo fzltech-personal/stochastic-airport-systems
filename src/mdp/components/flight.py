@@ -1,7 +1,7 @@
 """
 Flight domain object.
 
-Represents a single aircraft arrival in the airport system.
+Represents a single aircraft movement (arrival or departure) in the airport system.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -12,7 +12,7 @@ class Flight:
     """
     Single flight in a schedule.
 
-    Represents an aircraft arrival with scheduled and actual timing,
+    Represents an aircraft movement with scheduled and actual timing,
     physical constraints (runway, aircraft type), and metadata.
 
     This is a domain object used throughout the MDP simulation,
@@ -24,6 +24,7 @@ class Flight:
     scheduled_time: int  # Minutes from start of day
     runway: int  # Runway index (0-indexed)
     aircraft_type: str  # Type name (e.g., "narrow-body")
+    direction: str = "arrival"  # "arrival" or "departure"
 
     # Optional attributes (may be present in historical data)
     actual_time: Optional[int] = None
@@ -90,7 +91,7 @@ class Flight:
         if self.actual_delay is not None:
             delay_str = f", delay={self.actual_delay:+d}min"
 
-        return (f"Flight({self.flight_id}, t={self.scheduled_time}, "
+        return (f"Flight({self.flight_id}, {self.direction}, t={self.scheduled_time}, "
                 f"runway={self.runway}, type={self.aircraft_type}{delay_str})")
 
     def __repr__(self) -> str:

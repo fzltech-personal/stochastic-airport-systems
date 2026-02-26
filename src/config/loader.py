@@ -64,11 +64,17 @@ class ScenarioLoader:
         compatibility = ScenarioLoader._build_compatibility(data['compatibility'])
 
         # Parse schedule
+        schedule_data = data['schedule']
+        schedule_file = schedule_data.get('schedule_file')
+        if schedule_file:
+            schedule_file = Path(schedule_file)
+
         schedule = ScheduleConfig(
-            scenario_name=data['schedule']['scenario_name'],
-            num_flights=data['schedule']['num_flights'],
-            flights=data['schedule'].get('flights'),
-            generation_params=data['schedule'].get('generation_params')
+            scenario_name=schedule_data['scenario_name'],
+            num_flights=schedule_data['num_flights'],
+            flights=schedule_data.get('flights'),
+            generation_params=schedule_data.get('generation_params'),
+            schedule_file=schedule_file
         )
 
         # Parse noise model
