@@ -1,39 +1,14 @@
-name: "Morning Rush - Realistic Airport"
+name: "Morning Rush - Schiphol"
 
-airport:
-  num_gates: 8
-  num_runways: 2
-  delta_matrix:
-    - [2, 3, 5, 7, 8, 10, 12, 15]
-    - [15, 12, 10, 8, 7, 5, 3, 2]
+airport: "configs/airports/schiphol.yaml"
 
-aircraft_types:
-  - name: "regional"
-    base_service_mean: 30
-    base_service_std: 3
-    probability: 0.05
-  - name: "narrow-body"
-    base_service_mean: 45
-    base_service_std: 5
-    probability: 0.70
-  - name: "wide-body"
-    base_service_mean: 90
-    base_service_std: 10
-    probability: 0.25
-
-compatibility:
-  matrix:
-    - [1, 1, 1, 1, 0, 0, 0, 0]
-    - [1, 1, 1, 1, 1, 1, 0, 0]
-    - [0, 0, 1, 1, 1, 1, 1, 1]
-  preferences:
-    - [3.0, 3.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
-    - [2.0, 2.0, 1.5, 1.5, 1.0, 1.0, 0.0, 0.0]
-    - [0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]
+# Defines the traffic mix (probabilities and types)
+# Must match a key in configs/components/aircraft_types.yaml
+fleet_mix: "morning_rush_mix"
 
 schedule:
   scenario_name: "Morning Peak 6AM-10AM"
-  num_flights: 80
+  num_flights: 160
   generation_params:
     arrival_pattern: "normal_peak"
     time_window: [360, 600]  # 6 AM to 10 AM
@@ -48,12 +23,8 @@ noise_model:
     mean: 0
     std: 8
 
-rewards:
-  c_wait: -1.5
-  c_overflow: -100.0
-  c_assign: 1.0
-  beta: 0.3
-  Q_max: 8
+rewards: "configs/components/reward_structures.yaml"
+reward_profile: "morning_rush_rewards"
 
 time:
   horizon: 1440

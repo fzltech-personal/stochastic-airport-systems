@@ -1,87 +1,69 @@
-# Reusable aircraft type definitions
-# Scenarios can import these or define custom types
+# configs/components/aircraft_types.yaml
 
-standard_types:
+# ---------------------------------------------------------
+# SINGLE SOURCE OF TRUTH: Reusable aircraft type definitions
+# ---------------------------------------------------------
+aircraft_types:
   regional:
     name: "regional"
-    base_service_mean: 30
-    base_service_std: 3
-    description: "Small regional jets (50-100 passengers)"
-    typical_routes: "Short-haul domestic"
-
-  narrow_body:
-    name: "narrow-body"
-    base_service_mean: 45
+    base_service_mean: 35
     base_service_std: 5
-    description: "Single-aisle aircraft (A320, B737 family)"
-    typical_routes: "Domestic and short international"
+    description: "Cityhopper jets (Embraer E-jets)"
+    typical_routes: "Short-haul European"
 
-  wide_body:
-    name: "wide-body"
-    base_service_mean: 90
-    base_service_std: 10
-    description: "Twin-aisle aircraft (A350, B777, B787)"
-    typical_routes: "Long-haul international"
-
-  super_heavy:
-    name: "super-heavy"
-    base_service_mean: 120
-    base_service_std: 15
-    description: "Ultra-large aircraft (A380, B747-8)"
-    typical_routes: "Ultra-long-haul, high-capacity"
-
-cargo_types:
-  cargo_small:
-    name: "cargo-small"
-    base_service_mean: 60
+  narrow-body:
+    name: "narrow-body"
+    base_service_mean: 50
     base_service_std: 8
+    description: "Single-aisle aircraft (B737, A320 family)"
+    typical_routes: "European and short international"
+
+  wide-body:
+    name: "wide-body"
+    base_service_mean: 100
+    base_service_std: 15
+    description: "Twin-aisle aircraft (A330, B777, B787)"
+    typical_routes: "Long-haul intercontinental"
+
+  super-heavy:
+    name: "super-heavy"
+    base_service_mean: 135
+    base_service_std: 20
+    description: "Ultra-large aircraft (A380)"
+    typical_routes: "High-capacity intercontinental"
+
+  cargo-small:
+    name: "cargo-small"
+    base_service_mean: 70
+    base_service_std: 10
     description: "Cargo conversion of narrow-body"
 
-  cargo_heavy:
+  cargo-heavy:
     name: "cargo-heavy"
-    base_service_mean: 150
-    base_service_std: 20
-    description: "Dedicated cargo aircraft (B747F, B777F)"
+    base_service_mean: 180
+    base_service_std: 25
+    description: "Dedicated heavy freighters (B747F)"
 
-# Typical fleet mixes for different airport profiles
+# ---------------------------------------------------------
+# FLEET MIXES: Just references to types and their probabilities
+# ---------------------------------------------------------
+fleet_mixes:
+  hub_airport_mix:
+    regional: 0.15
+    narrow-body: 0.55
+    wide-body: 0.25
+    super-heavy: 0.02
+    cargo-heavy: 0.03
 
-hub_airport_mix:
-  # Major international hub (e.g., AMS, FRA, LHR)
-  - name: "regional"
-    base_service_mean: 30
-    base_service_std: 3
-    probability: 0.05
-  - name: "narrow-body"
-    base_service_mean: 45
-    base_service_std: 5
-    probability: 0.55
-  - name: "wide-body"
-    base_service_mean: 90
-    base_service_std: 10
-    probability: 0.35
-  - name: "super-heavy"
-    base_service_mean: 120
-    base_service_std: 15
-    probability: 0.05
+  regional_airport_mix:
+    regional: 0.30
+    narrow-body: 0.70
 
-regional_airport_mix:
-  # Regional airport (mostly domestic)
-  - name: "regional"
-    base_service_mean: 30
-    base_service_std: 3
-    probability: 0.30
-  - name: "narrow-body"
-    base_service_mean: 45
-    base_service_std: 5
-    probability: 0.70
+  cargo_hub_mix:
+    cargo-small: 0.40
+    cargo-heavy: 0.60
 
-cargo_hub_mix:
-  # Dedicated cargo hub (e.g., MEM, ANC)
-  - name: "cargo-small"
-    base_service_mean: 60
-    base_service_std: 8
-    probability: 0.40
-  - name: "cargo-heavy"
-    base_service_mean: 150
-    base_service_std: 20
-    probability: 0.60
+  morning_rush_mix:
+    regional: 0.05
+    narrow-body: 0.70
+    wide-body: 0.25

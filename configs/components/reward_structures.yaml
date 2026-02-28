@@ -54,6 +54,15 @@ premium_service:
   Q_max: 3           # Low tolerance
   rationale: "High-value passengers expect preferred gates and minimal delays"
 
+morning_rush_rewards:
+  description: "Specific rewards for the Morning Rush scenario"
+  c_wait: -1.5
+  c_overflow: -100.0
+  c_assign: 1.0
+  beta: 0.3
+  Q_max: 8
+  rationale: "High penalty for overflow and wait, but moderate preference importance"
+
 # Context-specific recommendations
 
 operational_contexts:
@@ -67,4 +76,4 @@ operational_contexts:
 
   holiday_rush:
     inherit: "throughput_priority"
-    description: "Thanksgiving, Christmas - max
+    description: "Thanksgiving, Christmas - max"

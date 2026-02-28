@@ -35,6 +35,7 @@ class Flight:
     gate_assigned: Optional[str] = None  # Historical assignment (if known)
     priority: int = 1
     delay_reason: Optional[str] = None
+    linked_flight_id: Optional[str] = None
 
     # Computed properties
 

@@ -1,0 +1,24 @@
+name: "Test Airport"
+
+num_gates: 8
+num_runways: 2
+
+delta_matrix:
+  - [2, 3, 5, 7, 8, 10, 12, 15]
+  - [15, 12, 10, 8, 7, 5, 3, 2]
+
+compatibility:
+  matrix:
+    - [1, 1, 1, 1, 0, 0, 0, 0]
+    - [1, 1, 1, 1, 1, 1, 0, 0]
+    - [0, 0, 1, 1, 1, 1, 1, 1]
+  preferences:
+    - [3.0, 3.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    - [2.0, 2.0, 1.5, 1.5, 1.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]
+
+# This airport accepts these aircraft types
+accepted_aircraft_types:
+  - "regional"
+  - "narrow-body"
+  - "wide-body"
