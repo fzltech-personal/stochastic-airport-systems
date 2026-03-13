@@ -3,24 +3,24 @@ Visualization utilities for airport schedules and operations.
 """
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from matplotlib.ticker import FuncFormatter
 import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 
-from src.mdp.components.flight import Flight
+from src.mdp.components.flight import ScheduledFlight
+from src.simulation.realization import ActiveFlight
 
 
 def plot_runway_schedule(
-    flights: List[Flight], 
-    num_runways: int, 
+    flights: List[Union[ScheduledFlight, ActiveFlight]],
+    num_runways: int,
     title: str = "Runway Schedule",
     block_duration: int = 5
 ):
     """
     Visualize the runway schedule as a Gantt chart.
-    
+
     Args:
-        flights: List of Flight objects
+        flights: List of ScheduledFlight or ActiveFlight objects
         num_runways: Number of runways
         title: Plot title
         block_duration: Duration to display for each flight block (minutes)
@@ -29,108 +29,73 @@ def plot_runway_schedule(
         print("No flights to visualize.")
         return
 
-    # Setup figure
-    fig, ax = plt.subplots(figsize=(15, max(4, num_runways * 1.5)))
-    
-    # Define colors for known aircraft types
-    type_colors = {
-        'regional': '#87CEEB',      # Sky Blue
-        'narrow-body': '#FFA500',   # Orange
-        'wide-body': '#32CD32',     # Lime Green
-    }
-    # Fallback color for unknown types
-    default_color = '#D3D3D3'       # Light Gray
-    
-    # Collect all unique types for legend
-    present_types = set(f.aircraft_type for f in flights)
-    
-    # Plot each flight
-    for flight in flights:
-        start_time = flight.scheduled_time
-        runway_idx = flight.runway
-        
-        # Ensure runway index is valid for plotting
-        if runway_idx >= num_runways:
-            continue
-            
-        color = type_colors.get(flight.aircraft_type, default_color)
-        
-        # Determine style based on direction
-        hatch = ''
-        edgecolor = 'black'
-        if hasattr(flight, 'direction') and flight.direction == 'departure':
-            hatch = '///'
-            # Make departures slightly lighter or distinct
-            
-        # Draw a rectangle representing the flight arrival slot
-        # Center the block vertically on the runway line
-        rect = patches.Rectangle(
-            (start_time, runway_idx - 0.3),  # (x, y) bottom-left corner
-            block_duration,                  # width
-            0.6,                             # height
-            linewidth=1,
-            edgecolor=edgecolor,
-            facecolor=color,
-            hatch=hatch,
-            alpha=0.8
-        )
-        ax.add_patch(rect)
-        
-        # Add flight ID text above the block (optional, uncomment if needed)
-        # label = flight.flight_id
-        # if hasattr(flight, 'direction') and flight.direction == 'departure':
-        #     label += " (D)"
-        #
-        # ax.text(
-        #     start_time + block_duration/2, 
-        #     runway_idx, 
-        #     label, 
-        #     ha='center', 
-        #     va='center', 
-        #     fontsize=6,
-        #     rotation=90,
-        #     color='black',
-        #     fontweight='bold'
-        # )
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(12, 6))
 
-    # Set axis limits and labels
-    min_time = min(f.scheduled_time for f in flights)
-    max_time = max(f.scheduled_time for f in flights)
-    padding = 30
-    
-    ax.set_xlim(min_time - padding, max_time + padding)
-    ax.set_ylim(-0.5, num_runways - 0.5)
-    
-    # Y-axis ticks for runways
+    # Define Y-axis (Runways)
+    ax.set_ylim(-1, num_runways)
     ax.set_yticks(range(num_runways))
     ax.set_yticklabels([f"Runway {i}" for i in range(num_runways)])
-    
-    # Format x-axis as HH:MM
-    def minutes_to_time(x, pos):
-        hours = int(x // 60) % 24  # Wrap around 24h
-        minutes = int(x % 60)
-        return f"{hours:02d}:{minutes:02d}"
+    ax.set_ylabel("Runway Index")
+
+    # Define X-axis (Time)
+    times = []
+    for f in flights:
+        if isinstance(f, ActiveFlight):
+            times.append(f.actual_arrival_time)
+        else:
+            times.append(f.scheduled_time)
+            
+    if not times:
+        return
+
+    min_time = min(times)
+    max_time = max(times)
+    ax.set_xlim(min_time - 30, max_time + 30)
+    ax.set_xlabel("Time (minutes)")
+
+    # Colors for different aircraft types
+    colors = {
+        "narrow_body": "blue",
+        "wide_body": "red",
+        "regional": "green"
+    }
+    default_color = "gray"
+
+    # Plot flights
+    for f in flights:
+        # Determine time, runway, type, and direction
+        if isinstance(f, ActiveFlight):
+            t = f.actual_arrival_time
+            # ActiveFlight uses schedule properties for fixed attributes
+            r = f.schedule.runway
+            atype = f.schedule.aircraft_type
+            direction = f.schedule.direction
+        else:
+            t = f.scheduled_time
+            r = f.runway
+            atype = f.aircraft_type
+            direction = f.direction
+
+        # Choose color
+        color = colors.get(atype, default_color)
         
-    ax.xaxis.set_major_formatter(FuncFormatter(minutes_to_time))
-    ax.set_xlabel("Time (HH:MM)")
+        # Visual distinction for departures (hatched)
+        hatch = "///" if direction == "departure" else None
+
+        # Draw rectangle
+        rect = patches.Rectangle(
+            (t, r - 0.4),       # (x, y)
+            block_duration,     # width
+            0.8,                # height
+            facecolor=color,
+            edgecolor="black",
+            alpha=0.6,
+            hatch=hatch
+        )
+        ax.add_patch(rect)
 
     ax.set_title(title)
-    
-    # Create legend
-    legend_elements = []
-    # Type colors
-    for atype in sorted(present_types):
-        color = type_colors.get(atype, default_color)
-        legend_elements.append(patches.Patch(facecolor=color, label=atype, edgecolor='black'))
-    
-    # Direction styles
-    legend_elements.append(patches.Patch(facecolor='white', label='Arrival', edgecolor='black'))
-    legend_elements.append(patches.Patch(facecolor='white', label='Departure', edgecolor='black', hatch='///'))
-        
-    ax.legend(handles=legend_elements, loc='upper right', title="Legend")
-    
-    # Add grid
-    plt.grid(True, axis='x', linestyle='--', alpha=0.5)
-    
+    plt.grid(True, axis='x', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.show()

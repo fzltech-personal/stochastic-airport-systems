@@ -83,8 +83,9 @@ class ScenarioConfig:
             )
 
         # Check that every type can use at least one gate
-        for i, aircraft_type in enumerate(self.aircraft_types):
-            compatible_gates = self.compatibility.get_compatible_gates(i)
+        # Use aircraft type name instead of integer index
+        for aircraft_type in self.aircraft_types:
+            compatible_gates = self.compatibility.get_compatible_gates(aircraft_type.name)
             if len(compatible_gates) == 0:
                 raise ValueError(
                     f"Aircraft type '{aircraft_type.name}' has no compatible gates"

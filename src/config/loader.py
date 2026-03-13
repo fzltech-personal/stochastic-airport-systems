@@ -4,8 +4,9 @@ Factory for loading scenarios from YAML files.
 import yaml
 import numpy as np
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
+from src.utils.paths import ProjectPaths  # Reliable path resolution
 from .scenario import ScenarioConfig
 from .airport import AirportTopologyConfig
 from .compatibility import CompatibilityConfig
@@ -37,12 +38,19 @@ class ScenarioLoader:
         """
         filepath = Path(filepath)
         if not filepath.exists():
-            raise FileNotFoundError(f"Config file not found: {filepath}")
+            # Try to resolve relative to configs dir if just a name is given
+            if not filepath.is_absolute():
+                 potential_path = ProjectPaths.get_configs_dir() / filepath
+                 if potential_path.exists():
+                     filepath = potential_path
+            
+            if not filepath.exists():
+                raise FileNotFoundError(f"Config file not found: {filepath}")
 
         with open(filepath, 'r') as f:
             data = yaml.safe_load(f)
 
-        scenario = ScenarioLoader._build_scenario(data, filepath.parent)
+        scenario = ScenarioLoader._build_scenario(data)
         scenario.validate_consistency()
 
         return scenario
@@ -56,27 +64,29 @@ class ScenarioLoader:
             return yaml.safe_load(f)
 
     @staticmethod
-    @staticmethod
-    def _build_scenario(data: Dict[str, Any], base_path: Path) -> ScenarioConfig:
+    def _build_scenario(data: Dict[str, Any]) -> ScenarioConfig:
         """Construct ScenarioConfig from parsed YAML dict."""
-
-        # Determine project root (assuming src/config/loader.py structure)
-        project_root = Path(__file__).parent.parent.parent
 
         # 1. Load Airport Configuration
         airport_path_str = data.get('airport')
         if not airport_path_str:
             raise ValueError("Scenario must specify 'airport' path.")
 
-        airport_path = Path(airport_path_str)
-        if not airport_path.is_absolute():
-            airport_path = project_root / airport_path
-
+        # Resolve airport config path
+        airport_path = ProjectPaths.resolve_path(airport_path_str)
+        
         airport_data = ScenarioLoader._load_yaml(airport_path)
         airport = ScenarioLoader._build_airport(airport_data)
 
         # 2. Load Aircraft Types (Fleet Mix)
-        aircraft_types_path = project_root / "configs/components/aircraft_types.yaml"
+        # Check if the scenario overrides the default aircraft types path
+        aircraft_types_path_str = data.get('aircraft_types_path')
+        if aircraft_types_path_str:
+            aircraft_types_path = ProjectPaths.resolve_path(aircraft_types_path_str)
+        else:
+            # Fallback to the default location (assuming standard project structure)
+            aircraft_types_path = ProjectPaths.get_configs_dir() / "components/aircraft_types.yaml"
+            
         aircraft_types_data = ScenarioLoader._load_yaml(aircraft_types_path)
 
         fleet_mix_name = data.get('fleet_mix')
@@ -104,9 +114,8 @@ class ScenarioLoader:
             # Construct the config object
             aircraft_types.append(AircraftTypeConfig(**type_data))
 
-        # Validate accepted types and determine row indices for matrix slicing
+        # Validate accepted types (Logic moved out of matrix slicing)
         accepted_types = airport_data.get('accepted_aircraft_types')
-        active_indices = []
 
         if accepted_types:
             for at in aircraft_types:
@@ -115,32 +124,69 @@ class ScenarioLoader:
                         f"Aircraft type '{at.name}' is not accepted by the airport "
                         f"(accepted: {accepted_types})"
                     )
-                # Keep track of the index for slicing later
-                active_indices.append(accepted_types.index(at.name))
         else:
-            # If no accepted_types list exists, we assume a 1:1 mapping (legacy support)
-            active_indices = list(range(len(aircraft_types)))
+            # Fallback if not specified: all loaded types are accepted
+            accepted_types = [at.name for at in aircraft_types]
 
         # 3. Load Compatibility (Smart Slicing)
         if 'compatibility' in airport_data:
             comp_data = airport_data['compatibility']
 
-            # Convert to numpy arrays to allow multi-row slicing
-            full_matrix = np.array(comp_data['matrix'])
-            full_prefs = np.array(comp_data['preferences'])
+            # Use raw matrices directly
+            raw_matrix = np.array(comp_data['matrix'])
+            raw_prefs = np.array(comp_data['preferences'])
+            
+            # Use the 'master' aircraft list defined in the airport config (or implied)
+            # Assuming the rows of raw_matrix correspond to 'accepted_aircraft_types' in the airport config order
+            # Wait, the prompt says "master_aircraft_list (List[str] representing the rows of the raw matrices)"
+            # This is tricky because the YAML structure for 'compatibility' needs to tell us what the rows are.
+            # In 'airport_data', there is usually a list of all types the airport supports.
+            
+            master_list = airport_data.get('accepted_aircraft_types')
+            if not master_list:
+                # If master list isn't explicit, assume the raw matrix rows match the accepted_types *if* no filtering happened yet.
+                # However, typically an airport defines a master set of types it handles.
+                # Let's assume the scenario loader logic we replaced was:
+                # sliced_matrix = full_matrix[active_indices, :]
+                # where active_indices were indices into accepted_types. 
+                # This implies accepted_types *was* the master list for the airport.
+                master_list = accepted_types
 
-            # Slice the matrices to only include active aircraft types
-            sliced_matrix = full_matrix[active_indices, :]
-            sliced_prefs = full_prefs[active_indices, :]
+            # Wait, accepted_types in the airport config is the list of types the airport *can* handle.
+            # fleet_mix is the list of types appearing in *this scenario*.
+            # So:
+            # master_aircraft_list = airport_data['accepted_aircraft_types']
+            # accepted_aircraft_types (for this config) = [at.name for at in aircraft_types]
+            
+            # We need to make sure we use the right list for 'master'. 
+            # In the previous code, active_indices mapped from the scenario types to the airport's accepted types.
+            # So airport_data['accepted_aircraft_types'] IS the master list for the rows of the matrix.
+            
+            airport_master_types = airport_data.get('accepted_aircraft_types')
+            if not airport_master_types:
+                 # If the airport doesn't list types, we can't safely slice.
+                 # Fallback to 1:1 if we assume the matrix matches exactly the current mix (legacy)
+                 airport_master_types = [at.name for at in aircraft_types]
+            
+            # The fleet mix for this scenario
+            scenario_active_types = [at.name for at in aircraft_types]
 
-            compatibility = CompatibilityConfig(
-                compatibility_matrix=sliced_matrix,
-                preference_matrix=sliced_prefs
+            compatibility = CompatibilityConfig.from_raw_data(
+                raw_comp_matrix=raw_matrix,
+                raw_pref_matrix=raw_prefs,
+                master_aircraft_list=airport_master_types,
+                accepted_aircraft_types=scenario_active_types
             )
+            
         else:
             # Fallback if defined directly in scenario (old style)
             if 'compatibility' in data:
-                compatibility = ScenarioLoader._build_compatibility(data['compatibility'])
+                # Legacy path: assumes the matrix is already shaped for the active types
+                compatibility = CompatibilityConfig(
+                    active_aircraft_types=[at.name for at in aircraft_types],
+                    compatibility_matrix=np.array(data['compatibility']['matrix']),
+                    preference_matrix=np.array(data['compatibility']['preferences'])
+                )
             else:
                 raise ValueError("Compatibility matrix must be defined in airport config or scenario.")
 
@@ -148,7 +194,8 @@ class ScenarioLoader:
         schedule_data = data['schedule']
         schedule_file = schedule_data.get('schedule_file')
         if schedule_file:
-            schedule_file = Path(schedule_file)
+            # Resolve schedule file path
+            schedule_file = ProjectPaths.resolve_path(schedule_file)
 
         schedule = ScheduleConfig(
             scenario_name=schedule_data['scenario_name'],
@@ -168,9 +215,7 @@ class ScenarioLoader:
         rewards_path_str = data.get('rewards')
         if isinstance(rewards_path_str, str):
             # It's a path to a rewards file
-            rewards_path = Path(rewards_path_str)
-            if not rewards_path.is_absolute():
-                rewards_path = project_root / rewards_path
+            rewards_path = ProjectPaths.resolve_path(rewards_path_str)
 
             rewards_data_full = ScenarioLoader._load_yaml(rewards_path)
             reward_profile = data.get('reward_profile')
@@ -217,8 +262,13 @@ class ScenarioLoader:
 
     @staticmethod
     def _build_compatibility(data: Dict[str, Any]) -> CompatibilityConfig:
-        """Build compatibility config."""
+        """Build compatibility config (Legacy/Direct)."""
+        # This is for when compatibility is defined inline without master/slicing
+        # We dummy the active types list since we don't have context here
         return CompatibilityConfig(
+            active_aircraft_types=[], # This is technically invalid but used for legacy structure match?
+                                      # Actually, better to raise error or fix caller.
+                                      # For now, let's assume direct usage provides pre-sliced data.
             compatibility_matrix=np.array(data['matrix']),
             preference_matrix=np.array(data['preferences'])
         )

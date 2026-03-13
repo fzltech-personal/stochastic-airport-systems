@@ -10,7 +10,7 @@ import json
 import csv
 from attrs import frozen, field, validators
 
-from src.mdp.components import Flight  # Import from domain objects
+from src.mdp.components.flight import ScheduledFlight  # Import from domain objects
 
 
 def _validate_exclusive_schedule_source(instance, attribute, value):
@@ -54,7 +54,7 @@ class ScheduleConfig:
     num_flights: int = field(validator=validators.gt(1))
 
     # Mode 1: Explicit flights (from file or inline)
-    flights: Optional[List[Flight]] = field(default=None)
+    flights: Optional[List[ScheduledFlight]] = field(default=None)
 
     # Mode 2: Generation parameters (synthetic)
     generation_params: Optional[Dict] = field(default=None)
@@ -76,12 +76,12 @@ class ScheduleConfig:
         """Validate flight count matches if explicit."""
         _validate_flight_count(self, attribute, value)
 
-    def get_flights(self) -> List[Flight]:
+    def get_flights(self) -> List[ScheduledFlight]:
         """
         Get the flight list, loading from file if necessary.
 
         Returns:
-            List of Flight objects
+            List of ScheduledFlight objects
 
         Raises:
             ValueError: If using generation_params (needs ScheduleGenerator)
@@ -99,7 +99,7 @@ class ScheduleConfig:
             "Use ScheduleGenerator.generate() first."
         )
 
-    def _load_from_file(self, filepath: Path) -> List[Flight]:
+    def _load_from_file(self, filepath: Path) -> List[ScheduledFlight]:
         """Load flights from JSON or CSV file."""
         filepath = Path(filepath)
 
@@ -113,18 +113,18 @@ class ScheduleConfig:
         else:
             raise ValueError(f"Unsupported schedule file format: {filepath.suffix}")
 
-    def _load_from_json(self, filepath: Path) -> List[Flight]:
+    def _load_from_json(self, filepath: Path) -> List[ScheduledFlight]:
         """Load flights from JSON file."""
         with open(filepath, 'r') as f:
             data = json.load(f)
 
         flights = []
         for flight_data in data['flights']:
-            flights.append(Flight.from_dict(flight_data))
+            flights.append(ScheduledFlight.from_dict(flight_data))
 
         return flights
 
-    def _load_from_csv(self, filepath: Path) -> List[Flight]:
+    def _load_from_csv(self, filepath: Path) -> List[ScheduledFlight]:
         """Load flights from CSV file."""
         flights = []
 
@@ -142,17 +142,14 @@ class ScheduleConfig:
 
                 # Add optional fields if present and not empty
                 optional_fields = [
-                    'actual_time', 'airline', 'origin', 'registration',
-                    'terminal', 'gate_assigned', 'delay_reason'
+                    'airline', 'origin', 'registration',
+                    'terminal', 'linked_flight_id'
                 ]
                 for field_name in optional_fields:
                     if field_name in row and row[field_name]:
-                        if field_name == 'actual_time':
-                            flight_data[field_name] = int(row[field_name])
-                        else:
-                            flight_data[field_name] = row[field_name]
+                        flight_data[field_name] = row[field_name]
 
-                flights.append(Flight.from_dict(flight_data))
+                flights.append(ScheduledFlight.from_dict(flight_data))
 
         return flights
 

@@ -1,22 +1,20 @@
 """
-Flight domain object.
+Flight domain objects.
 
-Represents a single aircraft movement (arrival or departure) in the airport system.
+Defines the static (scheduled) flight entity.
 """
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, fields
+from typing import Optional, Dict
 
 
-@dataclass
-class Flight:
+@dataclass(frozen=True)
+class ScheduledFlight:
     """
-    Single flight in a schedule.
-
-    Represents an aircraft movement with scheduled and actual timing,
-    physical constraints (runway, aircraft type), and metadata.
-
-    This is a domain object used throughout the MDP simulation,
-    not just a configuration data structure.
+    Immutable representation of a flight as it appears in the master schedule.
+    
+    This object serves as the static definition/contract for a flight operation.
+    It does not contain mutable runtime state (like actual arrival times or 
+    current delay), which are handled by the ActiveFlight wrapper in the simulation.
     """
 
     # Core attributes (always present)
@@ -26,74 +24,37 @@ class Flight:
     aircraft_type: str  # Type name (e.g., "narrow-body")
     direction: str = "arrival"  # "arrival" or "departure"
 
-    # Optional attributes (may be present in historical data)
-    actual_time: Optional[int] = None
+    # Optional metadata
     airline: Optional[str] = None
     origin: Optional[str] = None
     registration: Optional[str] = None
     terminal: Optional[str] = None
-    gate_assigned: Optional[str] = None  # Historical assignment (if known)
     priority: int = 1
-    delay_reason: Optional[str] = None
     linked_flight_id: Optional[str] = None
 
-    # Computed properties
-
-    @property
-    def actual_delay(self) -> Optional[int]:
-        """
-        Compute actual delay if actual_time is available.
-
-        Returns:
-            Delay in minutes (positive = late, negative = early),
-            or None if actual_time not available
-        """
-        if self.actual_time is not None:
-            return self.actual_time - self.scheduled_time
-        return None
-
-    @property
-    def is_delayed(self) -> bool:
-        """Check if flight is delayed (actual > scheduled)."""
-        delay = self.actual_delay
-        return delay is not None and delay > 0
-
     # Serialization
-
     def to_dict(self) -> dict:
-        """
-        Convert to dictionary for JSON serialization.
-
-        Returns:
-            Dictionary with only non-None fields
-        """
+        """Convert to dictionary for JSON serialization."""
         return {
             k: v for k, v in self.__dict__.items()
             if v is not None
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Flight':
-        """
-        Create Flight from dictionary.
+    def from_dict(cls, data: dict) -> 'ScheduledFlight':
+        """Create ScheduledFlight from dictionary."""
+        # Use introspection to determine the valid field names
+        valid_fields = {f.name for f in fields(cls)}
+        
+        # Filter the incoming dictionary to only include valid fields
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
-        Args:
-            data: Dictionary with flight attributes
-
-        Returns:
-            Flight instance
-        """
-        return cls(**data)
-
-    # Display
+        return cls(**filtered_data)
 
     def __str__(self) -> str:
-        delay_str = ""
-        if self.actual_delay is not None:
-            delay_str = f", delay={self.actual_delay:+d}min"
-
-        return (f"Flight({self.flight_id}, {self.direction}, t={self.scheduled_time}, "
-                f"runway={self.runway}, type={self.aircraft_type}{delay_str})")
+        return (f"ScheduledFlight({self.flight_id}, {self.direction}, "
+                f"t={self.scheduled_time}, runway={self.runway}, "
+                f"type={self.aircraft_type})")
 
     def __repr__(self) -> str:
         return self.__str__()

@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 import json
 
-from .flight import Flight
+from .flight import ScheduledFlight
 
 
 class ScheduleGenerator:
@@ -20,7 +20,7 @@ class ScheduleGenerator:
             num_runways: int,
             aircraft_types: List['AircraftTypeConfig'],
             rng: np.random.Generator
-    ) -> List['Flight']:
+    ) -> List[ScheduledFlight]:
 
         flights = []
 
@@ -67,7 +67,7 @@ class ScheduleGenerator:
             dep_runway = int(rng.integers(0, num_runways))
 
             # 7. Create the paired Flight objects
-            arr_flight = Flight(
+            arr_flight = ScheduledFlight(
                 flight_id=arr_id,
                 direction="arrival",
                 scheduled_time=arrival_time,
@@ -77,7 +77,7 @@ class ScheduleGenerator:
                 linked_flight_id=dep_id
             )
 
-            dep_flight = Flight(
+            dep_flight = ScheduledFlight(
                 flight_id=dep_id,
                 direction="departure",
                 scheduled_time=departure_time,
@@ -175,7 +175,7 @@ class ScheduleGenerator:
 
     @staticmethod
     def save_schedule(
-        flights: List[Flight],
+        flights: List[ScheduledFlight],
         filepath: Path,
         metadata: Optional[Dict] = None
     ):
@@ -183,7 +183,7 @@ class ScheduleGenerator:
         Save generated schedule to JSON file.
 
         Args:
-            flights: List of Flight objects
+            flights: List of ScheduledFlight objects
             filepath: Output file path
             metadata: Optional metadata to include
         """

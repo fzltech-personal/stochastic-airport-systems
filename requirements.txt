@@ -2,3 +2,7 @@ numpy
 attrs
 pyyaml
 matplotlib
+networkx
+scipy
+tqdm
+scikit-learn
