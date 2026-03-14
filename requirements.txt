@@ -6,3 +6,4 @@ networkx
 scipy
 tqdm
 scikit-learn
+pandas

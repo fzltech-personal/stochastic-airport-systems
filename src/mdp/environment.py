@@ -189,6 +189,74 @@ class AirportEnvironment:
         
         return next_state, reward, self.done, info
 
+    def simulate_action(self, state: AirportState, action: Action) -> Tuple[AirportState, float, bool]:
+        """
+        Lightweight, O(1) forward model to get a hypothetical next state and reward.
+        Does NOT mutate the environment's actual state.
+
+        Args:
+            state: The current AirportState (immutable).
+            action: The action to simulate.
+
+        Returns:
+            A tuple of (hypothetical_next_state, expected_reward, done).
+        """
+        current_t = state.t
+        next_t = current_t + 1
+        done = next_t >= self.scenario.time.horizon
+
+        assignment_made = False
+        preference_score = 0.0
+        
+        # Convert tuples to mutable lists for manipulation
+        next_gates = list(state.gates)
+        next_queue = list(state.runway_queue)
+
+        if not action.is_noop:
+            flight_id = action.flight_id
+            gate_idx = action.gate_idx
+
+            # Ensure the action is valid for the given state
+            if next_queue and next_queue[0] == flight_id:
+                next_queue.pop(0)  # Remove from queue
+                
+                flight = self.active_flights[flight_id]
+                taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, gate_idx)
+                base_service = self._base_service_times[flight.aircraft_type]
+                total_service_time = int(base_service + taxi_time)
+                
+                next_gates[gate_idx] = total_service_time
+                assignment_made = True
+
+                try:
+                    ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
+                    preference_score = self.scenario.compatibility.get_preference_idx(ac_idx, gate_idx)
+                except KeyError:
+                    preference_score = 0.0
+
+        # Calculate reward based on the state *after* the action is applied
+        reward = self.reward_config.compute_reward(
+            queue_length=len(next_queue),
+            assignment_made=assignment_made,
+            preference_score=preference_score
+        )
+
+        # Decrement gate timers for the next state
+        next_gates = [max(0, g - 1) for g in next_gates]
+
+        # Note: This simulation does not account for new arrivals at t+1.
+        # This is a common simplification in ADP forward models, where the focus
+        # is on the immediate consequence of the action. The stochasticity of
+        # arrivals is handled by the VFA learning from actual transitions.
+        
+        hypothetical_next_state = AirportState(
+            t=next_t,
+            gates=tuple(next_gates),
+            runway_queue=tuple(next_queue)
+        )
+
+        return hypothetical_next_state, reward, done
+
     def _process_arrivals(self, time: int):
         """Helper to inject new arrivals into the system."""
         new_flights = self._arrivals_map.get(time)
