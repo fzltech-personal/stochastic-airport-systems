@@ -22,14 +22,10 @@ from src.adp.value_function import LinearVFA
 from src.adp.agent import TD0Learner
 
 
-def main(scenario_filename: str):
-    # --- EASILY SWITCH SCENARIOS HERE ---
-    # scenario_filename = "greedy_trap.yaml" # Change to "greedy_trap.yaml" when ready!
-    # ------------------------------------
-
+def main(scenario_filename: str, continue_training: bool = False):
     # 1. Load configuration and generate schedule
     config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
-    scenario_prefix = config_path.stem # Extracts "morning_rush" or "greedy_trap"
+    scenario_prefix = config_path.stem
 
     scenario = ScenarioLoader.from_yaml(config_path)
 
@@ -52,10 +48,12 @@ def main(scenario_filename: str):
     )
     scenario = evolve(scenario, schedule=new_schedule)
 
-    # 2. Setup Data Paths (Using scenario prefix!)
+    # 2. Setup Data Paths
     data_dir = ProjectPaths.get_data_dir() / "processed"
     basis_path = data_dir / f"{scenario_prefix}_basis_functions.npy"
     mapping_path = data_dir / f"{scenario_prefix}_state_mapping.pkl"
+    theta_path = data_dir / f"{scenario_prefix}_learned_theta.npy"
+    rewards_path = data_dir / f"{scenario_prefix}_reward_history.npy"
 
     if not basis_path.exists():
         print(f"Error: PVF data for '{scenario_prefix}' not found!")
@@ -65,42 +63,61 @@ def main(scenario_filename: str):
     # 3. Initialize ADP Components
     extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path))
     vfa = LinearVFA(num_features=extractor.num_features)
-
-    # Hyperparameters: Gamma = Discount factor, Alpha = Learning rate
     learner = TD0Learner(vfa=vfa, extractor=extractor, gamma=0.99, alpha=0.01)
-
-    # 4. Setup Environment and Simulator
-    env = AirportEnvironment(scenario)
     policy = ADPPolicy(vfa=vfa, extractor=extractor, epsilon=0.5, gamma=0.99)
+    
+    # 4. Checkpointing Logic
+    start_episode = 0
+    episode_rewards = []
+    if continue_training:
+        print("--- Attempting to continue training ---")
+        if theta_path.exists():
+            print(f"Loading learned weights from: {theta_path}")
+            vfa.theta = np.load(theta_path)
+        
+        if rewards_path.exists():
+            print(f"Loading reward history from: {rewards_path}")
+            episode_rewards = list(np.load(rewards_path))
+            start_episode = len(episode_rewards)
+            
+            # Recalculate epsilon based on the number of completed episodes
+            # This ensures the exploration rate continues its decay schedule
+            initial_epsilon = 0.5
+            decay_rate = 0.95
+            policy.epsilon = max(0.01, initial_epsilon * (decay_rate ** start_episode))
+            print(f"Resuming from episode {start_episode}. New epsilon: {policy.epsilon:.4f}")
+        else:
+            print("No reward history found. Starting from scratch.")
+    
+    # 5. Setup Environment and Simulator
+    env = AirportEnvironment(scenario)
     simulator = Simulator(env, policy)
 
-    # 5. Training Loop
-    num_episodes = 100 # Consider bumping to 150 for the Greedy Trap!
-    episode_rewards = []
-
-    print(f"Training ADP Agent on '{scenario_prefix}' for {num_episodes} episodes...")
-    for episode in tqdm(range(num_episodes)):
-        # The environment must be reset under the hood by simulator.run_episode()
+    # 6. Training Loop
+    num_episodes = 100
+    print(f"Training ADP Agent on '{scenario_prefix}' from episode {start_episode} to {num_episodes}...")
+    
+    for episode in tqdm(range(start_episode, num_episodes), initial=start_episode, total=num_episodes):
         trajectory = simulator.run_episode()
-
-        # The agent learns from the experience!
         learner.learn_from_trajectory(trajectory)
-
         policy.epsilon = max(0.01, policy.epsilon * 0.95)
 
-        # Track total reward for the episode
         total_reward = sum(reward for _, _, reward, _ in trajectory)
         episode_rewards.append(total_reward)
+        
+        # --- SAVE CHECKPOINT AT THE END OF EACH EPISODE ---
+        np.save(theta_path, vfa.theta)
+        np.save(rewards_path, np.array(episode_rewards))
 
-    # 6. Plot Learning Curve
+    # 7. Plot Learning Curve
     plt.figure(figsize=(10, 5))
     plt.plot(episode_rewards, label="Total Reward per Episode", alpha=0.3, color='blue')
 
-    # Plot moving average
     window = max(1, num_episodes // 10)
-    moving_avg = np.convolve(episode_rewards, np.ones(window) / window, mode='valid')
-    plt.plot(range(window - 1, len(episode_rewards)), moving_avg, color='red', linewidth=2,
-             label=f"{window}-Episode Moving Avg")
+    if len(episode_rewards) >= window:
+        moving_avg = np.convolve(episode_rewards, np.ones(window) / window, mode='valid')
+        plt.plot(range(window - 1, len(episode_rewards)), moving_avg, color='red', linewidth=2,
+                 label=f"{window}-Episode Moving Avg")
 
     plt.title(f"ADP Training Progress - {scenario_prefix}")
     plt.xlabel("Episode")
@@ -111,19 +128,28 @@ def main(scenario_filename: str):
     output_dir = ProjectPaths.get_root() / "experiments/results/plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save plot with scenario prefix
     out_path = output_dir / f"{scenario_prefix}_training_curve.png"
     plt.savefig(out_path)
     print(f"Training complete! Curve saved to {out_path}")
-
-    # Save the learned weights with scenario prefix!
-    np.save(data_dir / f"{scenario_prefix}_learned_theta.npy", vfa.theta)
-    print(f"Learned weights saved as {scenario_prefix}_learned_theta.npy.")
+    print(f"Final learned weights saved to {theta_path}.")
 
 
 if __name__ == "__main__":
     import sys
 
-    # Grab the argument from the orchestrator, or default to morning_rush if running manually
-    scenario_arg = sys.argv[1] if len(sys.argv) > 1 else "morning_rush.yaml"
-    main(scenario_arg)
+    scenario_arg = "morning_rush.yaml"
+    continue_flag = False
+
+    if len(sys.argv) > 1:
+        # Check for flags before positional arguments
+        if '-c' in sys.argv or '--continue' in sys.argv:
+            continue_flag = True
+            # Remove the flag to not confuse the scenario argument parsing
+            if '-c' in sys.argv: sys.argv.remove('-c')
+            if '--continue' in sys.argv: sys.argv.remove('--continue')
+
+        # The remaining argument should be the scenario file
+        if len(sys.argv) > 1:
+            scenario_arg = sys.argv[1]
+
+    main(scenario_arg, continue_training=continue_flag)

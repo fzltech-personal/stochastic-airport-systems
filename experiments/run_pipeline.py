@@ -35,6 +35,8 @@ def main():
     parser = argparse.ArgumentParser(description="Run the ADP Airport Pipeline.")
     parser.add_argument("scenario", type=str, help="The YAML scenario file to run (e.g., stress_test.yaml)")
     parser.add_argument("--train", action="store_true", help="Include this flag to run training steps (01, 02, 03)")
+    parser.add_argument("-c", "--continue-training", action="store_true",
+                        help="Continue training from existing checkpoint")
     parser.add_argument("--model", type=str, default=None,
                         help="The prefix of the trained model to load. Defaults to the scenario name.")
 
@@ -69,8 +71,11 @@ def main():
         for step in training_steps:
             script_path = experiments_dir / step
             if script_path.exists():
+                args_list = [scenario_filename]
+                if step == "03_train_agent.py" and args.continue_training:
+                    args_list.append("-c")
                 # Training scripts just need the scenario name to generate the artifacts
-                run_script(script_path, [scenario_filename])
+                run_script(script_path, args_list)
             else:
                 print(f"\n⚠️ WARNING: Could not find {step}. Skipping...")
 

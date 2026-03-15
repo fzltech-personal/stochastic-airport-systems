@@ -68,6 +68,8 @@ def main():
 
     # ML Pipeline arguments
     parser.add_argument("--train", action="store_true", help="Run the training steps (Builds graph & learns weights).")
+    parser.add_argument("-c", "--continue-training", action="store_true",
+                        help="Continue training from existing checkpoint (Used with --train).")
     parser.add_argument("--model", type=str, default=None, help="Specific trained model prefix to load.")
 
     # Data args
@@ -105,6 +107,8 @@ def main():
 
         if args.train:
             cmd.append("--train")
+            if args.continue_training:
+                cmd.append("-c")
 
         # If a model is specified, use it.
         if args.model:
