@@ -1,0 +1,27 @@
+name: "The Fully Booked Meltdown"
+
+airport: "configs/airports/schiphol.yaml"
+fleet_mix: "heavy_trap_mix"
+
+schedule:
+  scenario_name: "Maximum Runway Capacity"
+  num_flights: 2 # Dummy value
+  generation_params:
+    arrival_pattern: "fully_booked"
+    time_window: [30, 180]  # A dense 2.5 hour window
+    runway_occupancy_time: 2 # Dictates the max capacity constraint
+    runway_assignment: "uniform"
+
+noise_model:
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 5
+
+rewards: "configs/components/reward_structures.yaml"
+reward_profile: "morning_rush_rewards"
+
+time:
+  horizon: 360 # 8-hour simulation to allow the backlog to clear
+  timestep: 1
+  S_max: 60

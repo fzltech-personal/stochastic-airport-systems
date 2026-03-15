@@ -22,9 +22,15 @@ from src.adp.value_function import LinearVFA
 from src.adp.agent import TD0Learner
 
 
-def main():
+def main(scenario_filename: str):
+    # --- EASILY SWITCH SCENARIOS HERE ---
+    # scenario_filename = "greedy_trap.yaml" # Change to "greedy_trap.yaml" when ready!
+    # ------------------------------------
+
     # 1. Load configuration and generate schedule
-    config_path = ProjectPaths.get_configs_dir() / "scenarios/morning_rush.yaml"
+    config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
+    scenario_prefix = config_path.stem # Extracts "morning_rush" or "greedy_trap"
+
     scenario = ScenarioLoader.from_yaml(config_path)
 
     rng = np.random.default_rng(42)
@@ -46,13 +52,14 @@ def main():
     )
     scenario = evolve(scenario, schedule=new_schedule)
 
-    # 2. Setup Data Paths
+    # 2. Setup Data Paths (Using scenario prefix!)
     data_dir = ProjectPaths.get_data_dir() / "processed"
-    basis_path = data_dir / "basis_functions.npy"
-    mapping_path = data_dir / "state_mapping.pkl"
+    basis_path = data_dir / f"{scenario_prefix}_basis_functions.npy"
+    mapping_path = data_dir / f"{scenario_prefix}_state_mapping.pkl"
 
     if not basis_path.exists():
-        print("Error: PVF data not found! Run 01_generate_features.py first.")
+        print(f"Error: PVF data for '{scenario_prefix}' not found!")
+        print(f"Run 01_generate_features.py with '{scenario_filename}' first.")
         return
 
     # 3. Initialize ADP Components
@@ -64,15 +71,14 @@ def main():
 
     # 4. Setup Environment and Simulator
     env = AirportEnvironment(scenario)
-    # policy = RandomPolicy()  # Train using random policy to explore everything
     policy = ADPPolicy(vfa=vfa, extractor=extractor, epsilon=0.5, gamma=0.99)
     simulator = Simulator(env, policy)
 
     # 5. Training Loop
-    num_episodes = 100
+    num_episodes = 100 # Consider bumping to 150 for the Greedy Trap!
     episode_rewards = []
 
-    print(f"Training ADP Agent for {num_episodes} episodes...")
+    print(f"Training ADP Agent on '{scenario_prefix}' for {num_episodes} episodes...")
     for episode in tqdm(range(num_episodes)):
         # The environment must be reset under the hood by simulator.run_episode()
         trajectory = simulator.run_episode()
@@ -96,7 +102,7 @@ def main():
     plt.plot(range(window - 1, len(episode_rewards)), moving_avg, color='red', linewidth=2,
              label=f"{window}-Episode Moving Avg")
 
-    plt.title("ADP Training Progress (TD(0) with Proto-Value Functions)")
+    plt.title(f"ADP Training Progress - {scenario_prefix}")
     plt.xlabel("Episode")
     plt.ylabel("Total Reward")
     plt.legend()
@@ -104,14 +110,20 @@ def main():
 
     output_dir = ProjectPaths.get_root() / "experiments/results/plots"
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / "training_curve.png"
+
+    # Save plot with scenario prefix
+    out_path = output_dir / f"{scenario_prefix}_training_curve.png"
     plt.savefig(out_path)
     print(f"Training complete! Curve saved to {out_path}")
 
-    # Save the learned weights!
-    np.save(data_dir / "learned_theta.npy", vfa.theta)
-    print("Learned weights saved.")
+    # Save the learned weights with scenario prefix!
+    np.save(data_dir / f"{scenario_prefix}_learned_theta.npy", vfa.theta)
+    print(f"Learned weights saved as {scenario_prefix}_learned_theta.npy.")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    # Grab the argument from the orchestrator, or default to morning_rush if running manually
+    scenario_arg = sys.argv[1] if len(sys.argv) > 1 else "morning_rush.yaml"
+    main(scenario_arg)

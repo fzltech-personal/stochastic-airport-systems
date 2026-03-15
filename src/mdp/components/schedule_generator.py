@@ -23,11 +23,30 @@ class ScheduleGenerator:
     ) -> List[ScheduledFlight]:
 
         flights = []
-
-        # Unpack parameters
         time_window = generation_params.get('time_window', [360, 600])
-        peak_time = generation_params.get('peak_time', 480)
-        peak_std = generation_params.get('peak_std', 60)
+        arrival_pattern = generation_params.get('arrival_pattern', 'normal_peak')
+
+        # 1. Generate arrival times based on the chosen pattern
+        arrival_times = np.array([])
+        if arrival_pattern == "poisson_rate":
+            hourly_rate = generation_params.get('hourly_rate', 30)
+            time_delta_hours = (time_window[1] - time_window[0]) / 60
+            expected_flights = hourly_rate * time_delta_hours
+            actual_num_flights = rng.poisson(expected_flights)
+            arrival_times = rng.uniform(time_window[0], time_window[1], size=actual_num_flights)
+
+        elif arrival_pattern == "fully_booked":
+            runway_occupancy_time = generation_params.get('runway_occupancy_time', 2)
+            time_delta_minutes = time_window[1] - time_window[0]
+            # Max flights is total available runway minutes divided by occupancy time
+            max_flights = int((time_delta_minutes / runway_occupancy_time) * num_runways)
+            arrival_times = np.linspace(time_window[0], time_window[1], num=max_flights)
+
+        else:  # "normal_peak" or default
+            peak_time = generation_params.get('peak_time', 480)
+            peak_std = generation_params.get('peak_std', 60)
+            arrival_times = rng.normal(loc=peak_time, scale=peak_std, size=num_flights)
+            arrival_times = np.clip(arrival_times, time_window[0], time_window[1])
 
         # Extract probabilities for the fleet mix
         types = [at.name for at in aircraft_types]
@@ -36,37 +55,34 @@ class ScheduleGenerator:
 
         flight_id_counter = 1
 
-        # num_flights is now actual_num_flights (sampled from Poisson in main.py)
-        for _ in range(num_flights):
-            # 1. Sample Aircraft Type
+        # 2. Generate flight objects for each arrival time
+        for arrival_time_float in arrival_times:
+            arrival_time = int(round(arrival_time_float))
+
+            # Sample Aircraft Type
             chosen_type_name = rng.choice(types, p=probs)
             ac_config = next(at for at in aircraft_types if at.name == chosen_type_name)
 
-            # 2. Sample Arrival Time
-            arrival_time_float = rng.normal(loc=peak_time, scale=peak_std)
-            arrival_time_float = np.clip(arrival_time_float, time_window[0], time_window[1])
-            arrival_time = int(round(arrival_time_float))
-
-            # 3. Sample Turnaround (Service) Time based on aircraft type
+            # Sample Turnaround (Service) Time based on aircraft type
             service_time_float = rng.normal(
                 loc=ac_config.base_service_mean,
                 scale=ac_config.base_service_std
             )
             service_time = int(max(20, round(service_time_float)))
 
-            # 4. Calculate Departure Time
+            # Calculate Departure Time
             departure_time = arrival_time + service_time
 
-            # 5. Create Identifiers
-            tail_number = f"PH-{flight_id_counter:03d}"  # Dutch tail numbers!
+            # Create Identifiers
+            tail_number = f"PH-{flight_id_counter:03d}"
             arr_id = f"A{flight_id_counter:04d}"
             dep_id = f"D{flight_id_counter:04d}"
 
-            # 6. Assign random runways (can be overwritten by MDP later)
+            # Assign random runways
             arr_runway = int(rng.integers(0, num_runways))
             dep_runway = int(rng.integers(0, num_runways))
 
-            # 7. Create the paired Flight objects
+            # Create the paired Flight objects
             arr_flight = ScheduledFlight(
                 flight_id=arr_id,
                 direction="arrival",

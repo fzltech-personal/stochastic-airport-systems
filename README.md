@@ -6,218 +6,161 @@ A research project investigating state representation methods for Approximate Dy
 
 This project studies stochastic airport scheduling problems—primarily gate assignment—using Markov Decision Processes (MDPs) and Approximate Dynamic Programming. Unlike generic queueing models, we solve a realistic variant of the problem that includes:
 
-- **Explicit MDP formulation** incorporating **schedule-based arrivals with stochastic delays**.
+- **Explicit MDP formulation** incorporating **stochastic schedule generation** (Poisson arrival rates, deterministic capacity limits, normal peaks).
 - **Spatially heterogeneous service times**, where gate occupation depends on taxiing distances from specific runways.
-- **Automatic state representation learning** via spectral methods (Proto-Value Functions) and Successor Features.
-- **Linear value function approximation** for scalable ADP.
-- **Comparison of handcrafted vs. learned basis functions** in a safety-critical domain.
-- **Aircraft-gate compatibility constraints**, distinguishing physical limitations (hard constraints) from operational preferences (soft rewards).
+- **Automatic state representation learning** via spectral methods (Proto-Value Functions) to map the topological geometry of the airport without hardcoded rules.
+- **Linear value function approximation** for scalable ADP using Temporal Difference (TD) learning.
+- **Aircraft-gate compatibility constraints**, distinguishing physical limitations (e.g., A380 Super-Heavies) from operational preferences (e.g., Pier proximity).
+- **Automated MLOps Pipeline**, decoupling environment simulation from AI training to allow for zero-shot evaluation on unseen traffic schedules.
 
-**This is NOT a deep reinforcement learning project.** We use simulation and structured mathematical methods (Spectral Graph Theory) to maintain interpretability, safety awareness, and theoretical rigor.
+**This is NOT a deep reinforcement learning project.** We use stochastic simulation and structured mathematical methods (Spectral Graph Theory) to maintain interpretability, safety awareness, and theoretical rigor.
 
 ---
 
 ## Repository Structure
 
-
-```
-
+```text
 airport-mdp-adp/
 ├── README.md
-├── .gitignore
+├── main.py                     # Unified CLI for Data Engineering and MLOps
 │
-├── docs/                       # Thesis and documentation
-│   ├── thesis.tex
-│   ├── references.bib
-│   ├── figures/
-│   └── sections/
+├── configs/                    # YAML/JSON configurations
+│   ├── airports/               # Airport layouts, delta matrices (e.g., schiphol.yaml)
+│   ├── components/             # Aircraft types, compatibility matrices, rewards
+│   └── scenarios/              # Traffic scenarios (stress_test, morning_rush, greedy_trap)
 │
 ├── src/                        # Core implementation
-│   ├── mdp/                    # MDP formulation (states, transitions, rewards)
-│   ├── simulation/             # Trajectory generation under representative schedules
-│   ├── representation/         # Basis function construction (PVFs, successor features)
-│   ├── adp/                    # Value function approximation and TD learning
-│   ├── utils/                  # Configuration and visualization
-│   └── config/                 # Aircraft types, compatibility matrices, reward weights
+│   ├── mdp/                    # MDP formulation, states, and stochastic schedule generators
+│   ├── simulation/             # Trajectory generation and environment stepping
+│   ├── representation/         # Spectral graph builder and PVF computation
+│   └── adp/                    # Value function approximation, TD learning, Baselines
 │
-├── experiments/                # Runnable scripts for each project stage
-│   ├── 01_trajectory_generation.py
-│   ├── 02_graph_construction.py
-│   ├── 03_pvf_computation.py
-│   └── results/                # Saved trajectories, graphs, basis functions
+├── experiments/                # MLOps Pipeline Scripts
+│   ├── run_pipeline.py         # Master Orchestrator
+│   ├── 01_generate_features.py # Random walks to build state-transition graphs
+│   ├── 02_visualize_features.py# Spectral embedding visualization
+│   ├── 03_train_agent.py       # TD(0) learning loop
+│   ├── 04_evaluate_policy.py   # Baseline vs. ADP metrics evaluation
+│   └── 05_visualize_schedule.py# Output Gantt chart generation
 │
-├── tests/                      # Mathematical sanity checks
-│
-└── notebooks/                  # Exploratory analysis (optional)
+└── data/processed/             # Saved weights (.npy), graphs (.pkl), and basis functions
 
 ```
 
----
-
-## Project Stages
-
-### Stage 1: MDP Formulation ✓ (Recently Updated)
-- **State space:** Time, gate occupancy vectors, queue of waiting flights (including runway origin **and aircraft type**).
-- **Action space:** Gate assignment decisions subject to **aircraft-gate compatibility constraints**.
-- **Dynamics:** 
-    - **Arrivals:** Master schedule + stochastic noise (perturbations).
-    - **Service:** Base service time (**type-dependent**) + **Runway-to-Gate taxiing penalty**.
-- **Reward structure:** Penalties for waiting time and queue overflow; rewards for throughput **and aircraft-gate matching**.
-
-### Stage 2: Trajectory Generation (in progress)
-- Simulate episodes using **representative daily schedules** (e.g., Morning Rush, Delayed Evening).
-- **Sample aircraft types** from realistic distributions for each flight.
-- Collect state-action-reward-next_state tuples under baseline policies (Random, Greedy, **Compatibility-Aware Greedy**).
-- Store trajectories to capture the "interaction dynamics" of the airport.
-
-### Stage 3: State-Transition Graph Construction (In Progress)
-- **Time-Collapsed Graph:** Construct a graph where nodes represent unique resource configurations $(\mathbf{g}, \mathbf{q})$ independent of absolute time.
-- **Goal:** Identify recurrent operational states and bottlenecks, avoiding the "Directed Acyclic Graph" trap of pure time-series data.
-- **Weighting:** Edges weighted by empirical transition probabilities or state-kernel similarity.
-
-### Stage 4: Automatic Basis Construction (Planned)
-- **Proto-Value Functions (PVFs):** Laplacian eigenfunctions of the time-collapsed graph to capture global geometry.
-- **Successor Features:** Learned representations predicting future occupancy of specific **gate/runway/type** features.
-- **State Aggregation:** Clustering-based dimensionality reduction.
-
-### Stage 5: ADP with Linear VFA (Planned)
-- Temporal Difference (TD) learning using the learned basis functions.
-- Compare performance: **Handcrafted Heuristics** vs. **Spectral Basis** vs. **Successor Features**.
-
-### Stage 6: Evaluation (Planned)
-- Test under **Disruption Scenarios** (e.g., Runway closure, severe weather delays).
-- Measure approximation quality (Bellman error) and operational metrics (Throughput, Overflow count).
-
-### Stage 7: Analysis (Planned)
-- **Interpretability:** Visualize the "eigen-states" to see if the AI detects operational bottlenecks.
-- **Robustness:** Analyze policy performance on unseen schedules.
-
----
-
-## Current Focus
-
-**Active Development:** Integrating aircraft-gate compatibility into the MDP formulation and trajectory generation pipeline.
-
-**Next Immediate Steps:**
-1. Define realistic compatibility matrix $\mathbf{C}$ and preference matrix $\mathbf{P}$ for experimental scenarios
-2. Implement type-aware trajectory generation with compatibility checking
-3. Verify that baseline policies respect hard constraints
 ---
 
 ## Technical Foundation
 
 **Mathematical Framework:**
-- Finite-horizon, discrete-time MDPs.
-- **Bellman equations** and dynamic programming.
-- **Linear value function approximation:** $\hat{V}(s) = \phi(s)^\top \theta$, where $s = (t, \mathbf{g}, \mathbf{q})$ with $\mathbf{q}$ encoding runway origins **and aircraft types**.
-- **Temporal difference learning** for parameter estimation.
+
+* Finite-horizon, discrete-time MDPs.
+* **Bellman equations** and dynamic programming.
+* **Linear value function approximation:** $\hat{V}(s) = \phi(s)^\top \theta$, where $s = (t, \mathbf{g}, \mathbf{q})$ with $\mathbf{q}$ encoding runway origins and aircraft types.
+* **Temporal difference learning** for parameter estimation.
 
 **Key Methods:**
-- **Proto-Value Functions:** Eigenvectors of graph Laplacian capture "geometry" of the state space.
-  - *Rationale:* Smooth over frequently-visited state transitions to generalize across different schedules.
-  - *Connection:* Diffusion processes, spectral graph theory.
-- **Successor Features:** Decoupling dynamics (future occupancy) from reward (current goals) for transfer learning.
-- **No neural network control:** Autoencoders (if used) serve ONLY for state embedding, not decision-making.
+
+* **Proto-Value Functions (PVFs):** Eigenvectors of the graph Laplacian capture the "geometry" of the state space. This smooths over frequently-visited state transitions to generalize across different schedules.
+* **Resource Contention:** Training forces the agent to learn the difference between immediate rewards (Greedy) and future bottlenecks (e.g., the "Super-Heavy Trap").
 
 ---
 
 ## Installation
 
+Ensure you have Python 3.9+ installed.
+
 ```bash
 # Clone repository
 git clone [https://github.com/fzltech-personal/stochastic-airport-systems.git](https://github.com/fzltech-personal/stochastic-airport-systems.git)
-cd airport-mdp-adp
+cd stochastic-airport-systems
 
 # Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 ```
 
-**Core dependencies:**
-
-* `numpy`, `scipy` (numerical computation, linear algebra)
-* `networkx` (graph construction and spectral analysis)
-* `matplotlib` (visualization)
-* `pytest` (testing)
-
 ---
 
-## Usage
+## 🛠️ CLI Tutorial & Usage
 
-### Run Experiments Sequentially
+The entire framework is driven by the root `main.py` command-line interface. It acts as a Swiss Army Knife for both Data Engineering (inspecting environments) and MLOps (training and evaluating AI).
+
+### Part 1: Data Engineering & Inspection
+
+Before running complex AI models, you can safely inspect and visualize the stochastic environments to ensure your scenario math is correct.
+
+**1. Inspect a scenario configuration:**
+Validates your YAML file and prints the loaded configuration.
 
 ```bash
-# Stage 2: Generate trajectories (using defined schedules)
-python experiments/01_trajectory_generation.py
-
-# Stage 3: Construct state-transition graph (Time-Collapsed)
-python experiments/02_graph_construction.py
-
-# Stage 4: Compute Proto-Value Functions (Eigen-decomposition)
-python experiments/03_pvf_computation.py
+python main.py configs/scenarios/stress_test.yaml --inspect
 
 ```
 
-Results are saved to `experiments/results/`.
-
-### Run Tests
+**2. Generate and preview a synthetic schedule:**
+Runs the stochastic generator (evaluating Poisson rates or capacity limits) and prints the chronological flight list.
 
 ```bash
-pytest tests/
+python main.py configs/scenarios/stress_test.yaml --generate --seed 99
+
+```
+
+**3. Visualize the raw schedule constraints:**
+
+```bash
+python main.py configs/scenarios/stress_test.yaml --visualize-schedule
+
+```
+
+### Part 2: MLOps & AI Training
+
+Once the environment is verified, use the `--run-pipeline` flag to hand control over to the MLOps orchestrator. This executes the 5-step pipeline: Feature Generation $\to$ Visualization $\to$ TD Training $\to$ Baseline Evaluation $\to$ Gantt Chart Plotting.
+
+**Train a new AI agent from scratch:**
+Pass the scenario filename and the `--train` flag. The AI will explore the airport, learn the geometry, train its weights ($\theta$), and output the final performance metrics.
+
+```bash
+python main.py stress_test.yaml --run-pipeline --train
+
+```
+
+### Part 3: Zero-Shot Evaluation
+
+Because the AI learns the geometry of the airport (not just the schedule), you can evaluate a trained brain on completely unseen traffic scenarios without retraining it.
+
+**Evaluate a new scenario using a pre-trained brain:**
+Use the `--model` flag to point the evaluation scripts to the weights you trained in Part 2.
+
+```bash
+python main.py morning_rush.yaml --run-pipeline --model stress_test
 
 ```
 
 ---
 
-## Data Management
+## 📊 Outputs & Artifacts
 
-* **Trajectories:** Stored as `.npy` files in `experiments/results/trajectories/`.
-* Format: Array of `(state, action, reward, next_state)` tuples.
+Running the pipeline automatically pits the ADP Agent against a Random baseline and a Myopic Greedy heuristic. Results are saved to `experiments/results/`, including:
 
-
-* **Graphs:** Stored as `.npy` adjacency matrices or NetworkX pickles in `experiments/results/graphs/`.
-* **Basis Functions:** Stored as `.npy` arrays (each column = one basis function).
-
-* **Configuration Files:** Aircraft type definitions, compatibility matrix $\mathbf{C}$, preference matrix $\mathbf{P}$, and reward parameters stored as JSON or YAML in `src/config/`.
-
-**Not tracked in git:** large trajectory files, and LaTeX build artifacts (see `.gitignore`).
-
----
-
-## Design Philosophy
-
-1. **MDP first:** Explicit state/action/transition definitions, not black-box methods.
-2. **Math first:** Derive, then implement; verify mathematical properties (e.g., spectral gap).
-3. **Structure first:** Modular code separating concerns (MDP, simulation, representation, ADP).
-4. **Minimal AI assistance:** Focus on reasoning, not auto-completion.
+1. **Evaluation CSVs:** A breakdown of the mean reward and standard deviation (proving the ADP agent outsmarts greedy heuristics during resource contention).
+2. **Spectral Graph Plots:** 2D visualizations of the Fiedler vector and proto-value functions.
+3. **Training Curves:** Visualizing the agent's total reward over episodes.
+4. **Gantt Charts:** A color-coded timeline showing exact gate assignments, aircraft types, and stochastic service turnaround times.
 
 ---
 
 ## References
 
-Key literature foundations (to be expanded in `references.bib`):
-
 * **Proto-Value Functions:** Mahadevan & Maggioni (2007) - "Proto-value functions: A Laplacian framework for learning representation and control in Markov decision processes"
 * **Approximate Dynamic Programming:** Powell (2011) - "Approximate Dynamic Programming"
-* **Successor Representations:** Dayan (1993) - "Improving generalization for temporal difference learning: The successor representation"
-* **Gate Assignment Problems:** [Add relevant OR/scheduling references as you encounter them]
-* **Aircraft-Gate Compatibility:** [Industry standards or academic papers on terminal design]
-
 
 ---
 
-## Contact / Contribution
+## Contact
 
 This is a research project. External contributions are not expected at this stage.
-
 For questions or collaboration inquiries: [Jeroen Fränzel](mailto:j.franzel@hotmail.com)
-
----
-
-## License
-
-[Specify license, e.g., MIT, or indicate this is research code not yet licensed]

@@ -36,7 +36,8 @@ class AirportEnvironment:
         
         # Internal mutable state (for efficiency)
         self._current_queue: deque[str] = deque()
-        self._current_gates: np.ndarray = np.zeros(scenario.num_gates, dtype=int)
+        # This now represents the time until each gate is available. 0 means free.
+        self._gate_available_time: np.ndarray = np.zeros(scenario.airport.num_gates, dtype=int)
         
         # Reward configuration shortcut
         self.reward_config: RewardConfig = scenario.rewards
@@ -48,8 +49,6 @@ class AirportEnvironment:
         }
         
         # Pre-process arrivals for O(1) access by time
-        # In a full simulation, this might be dynamic/stochastic, 
-        # but for the core MDP logic, we often work with a realization.
         self._arrivals_map: Dict[int, List[ActiveFlight]] = defaultdict(list)
         self._init_arrivals_map()
         
@@ -64,11 +63,7 @@ class AirportEnvironment:
         flights = self.scenario.schedule.get_flights()
         for sched_flight in flights:
             if sched_flight.direction == "arrival":
-                # Create realization (ActiveFlight)
-                # Apply simple noise model if needed, or stick to schedule for baseline
-                # For now, deterministic arrival at scheduled time
                 arrival_time = sched_flight.scheduled_time
-                
                 active_flight = ActiveFlight(
                     schedule=sched_flight,
                     actual_arrival_time=arrival_time
@@ -88,7 +83,7 @@ class AirportEnvironment:
         # Clear internal state
         self.active_flights.clear()
         self._current_queue.clear()
-        self._current_gates.fill(0)
+        self._gate_available_time.fill(0)
         
         # Process initial arrivals at t=0
         self._process_arrivals(0)
@@ -96,24 +91,38 @@ class AirportEnvironment:
         # Return immutable snapshot
         return self._get_state_snapshot()
 
+    def get_valid_actions(self, state: AirportState) -> List[Action]:
+        """
+        Returns a list of valid actions for the given state, enforcing hard constraints.
+        An action is valid if the gate is compatible and available.
+        """
+        # If nothing is in the queue, the only action is to wait.
+        if not state.runway_queue:
+            return [Action(flight_id=None, gate_idx=-1)]
+
+        flight_id = state.runway_queue[0]
+        flight = self.active_flights[flight_id]
+        
+        # Find compatible gates for the aircraft type
+        compatible_gates = self.scenario.airport.get_compatible_gates(flight.aircraft_type)
+        
+        valid_actions = []
+        for gate_idx in compatible_gates:
+            # HARD CONSTRAINT: Gate must be free at the current time.
+            if state.gates[gate_idx] == 0:
+                valid_actions.append(Action(flight_id=flight_id, gate_idx=gate_idx))
+
+        # If no gates are available for this flight, the only option is to hold.
+        # This is represented by a NO_OP action. The simulation will advance,
+        # and the flight will remain in the queue, incurring a penalty.
+        if not valid_actions:
+            return [Action(flight_id=None, gate_idx=-1)]
+            
+        return valid_actions
+
     def step(self, action: Action) -> Tuple[AirportState, float, bool, Dict[str, Any]]:
         """
         Execute one timestep in the environment.
-        
-        Sequence:
-        1. Apply Action (Assign gate)
-        2. Calculate Reward (Based on queue state *before* new arrivals)
-        3. Dynamics (Tick: t+1, decrement gates)
-        4. Stochastic Arrivals (Add new flights to queue)
-
-        Args:
-            action: The action chosen by the agent.
-
-        Returns:
-            next_state: The new immutable state.
-            reward: The scalar reward for this transition.
-            done: Whether the episode has ended.
-            info: Diagnostic information.
         """
         if self.done:
             raise RuntimeError("Cannot step() on a finished environment. Call reset() first.")
@@ -126,37 +135,34 @@ class AirportEnvironment:
             flight_id = action.flight_id
             gate_idx = action.gate_idx
             
-            # Validation: ensure action matches head of queue
-            if self._current_queue and self._current_queue[0] == flight_id:
-                # Remove from queue (FIFO assumption: head of queue)
+            # VALIDATION: Ensure action is valid
+            # 1. Flight is at the head of the queue
+            # 2. Gate is actually available
+            if self._current_queue and self._current_queue[0] == flight_id and self._gate_available_time[gate_idx] == 0:
                 self._current_queue.popleft()
                 
-                # Update ActiveFlight status
                 flight = self.active_flights[flight_id]
                 flight.gate_assignment = gate_idx
                 flight.service_start_time = self.t
                 
-                # Determine service time
-                # Taxiing depends on runway (from flight) and gate (from action)
                 taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, gate_idx)
-                
-                # Base service time (O(1) lookup)
                 base_service = self._base_service_times[flight.aircraft_type]
-                
                 total_service_time = int(base_service + taxi_time)
-                self._current_gates[gate_idx] = total_service_time
+                
+                # Set the gate's timer to the total service duration
+                self._gate_available_time[gate_idx] = total_service_time
                 
                 assignment_made = True
                 
-                # Calculate preference score using fast lookup
                 try:
                     ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
                     preference_score = self.scenario.compatibility.get_preference_idx(ac_idx, gate_idx)
                 except KeyError:
                     preference_score = 0.0
+        
+        # If action is NO_OP (hold), no assignment is made, flight stays in queue.
 
         # --- 2. Reward Calculation ---
-        # Calculate penalty based on the queue *after* assignment but *before* time step
         queue_len = len(self._current_queue)
         reward = self.reward_config.compute_reward(
             queue_length=queue_len,
@@ -165,12 +171,8 @@ class AirportEnvironment:
         )
 
         # --- 3. Dynamics (Tick) ---
-        # Advance time
         self.t += 1
-        
-        # Decrement gate timers
-        # Use numpy maximum to clamp at 0
-        self._current_gates = np.maximum(0, self._current_gates - 1)
+        self._gate_available_time = np.maximum(0, self._gate_available_time - 1)
 
         # --- 4. Stochastic Arrivals ---
         self._process_arrivals(self.t)
@@ -184,78 +186,72 @@ class AirportEnvironment:
         info = {
             "assignment_made": assignment_made,
             "queue_length": len(self._current_queue),
-            "occupied_gates": np.sum(self._current_gates > 0)
+            "occupied_gates": np.sum(self._gate_available_time > 0)
         }
         
         return next_state, reward, self.done, info
 
     def simulate_action(self, state: AirportState, action: Action) -> Tuple[AirportState, float, bool]:
         """
-        Lightweight, O(1) forward model to get a hypothetical next state and reward.
-        Does NOT mutate the environment's actual state.
-
-        Args:
-            state: The current AirportState (immutable).
-            action: The action to simulate.
-
-        Returns:
-            A tuple of (hypothetical_next_state, expected_reward, done).
+        Simulate the effect of an action on a given state without mutating the actual environment.
+        Used strictly by the ADP agent for lookahead (evaluating V(s')).
         """
-        current_t = state.t
-        next_t = current_t + 1
-        done = next_t >= self.scenario.time.horizon
+        # 1. Setup temporary variables for the hypothetical future
+        next_t = state.t + 1
+        is_done = next_t >= self.scenario.time.horizon
 
-        assignment_made = False
-        preference_score = 0.0
-        
-        # Convert tuples to mutable lists for manipulation
+        # Copy the immutable tuples into mutable lists for the calculation
         next_gates = list(state.gates)
         next_queue = list(state.runway_queue)
 
-        if not action.is_noop:
-            flight_id = action.flight_id
-            gate_idx = action.gate_idx
+        assignment_made = False
+        preference_score = 0.0
 
-            # Ensure the action is valid for the given state
-            if next_queue and next_queue[0] == flight_id:
-                next_queue.pop(0)  # Remove from queue
-                
-                flight = self.active_flights[flight_id]
-                taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, gate_idx)
-                base_service = self._base_service_times[flight.aircraft_type]
-                total_service_time = int(base_service + taxi_time)
-                
-                next_gates[gate_idx] = total_service_time
+        # 2. Apply action logic
+        if not getattr(action, 'is_noop', True) and action.flight_id is not None:
+            # If the action is valid, process the assignment
+            if next_queue and next_queue[0] == action.flight_id:
+                next_queue.pop(0)  # Remove the assigned flight from the queue
+
+                flight = self.active_flights[action.flight_id]
+                taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, action.gate_idx)
+                total_service = int(self._base_service_times[flight.aircraft_type] + taxi_time)
+
+                # Occupy the gate
+                next_gates[action.gate_idx] = total_service
                 assignment_made = True
 
                 try:
                     ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
-                    preference_score = self.scenario.compatibility.get_preference_idx(ac_idx, gate_idx)
+                    preference_score = self.scenario.compatibility.get_preference_idx(ac_idx, action.gate_idx)
                 except KeyError:
                     preference_score = 0.0
 
-        # Calculate reward based on the state *after* the action is applied
+        # 3. Calculate Expected Reward
         reward = self.reward_config.compute_reward(
             queue_length=len(next_queue),
             assignment_made=assignment_made,
             preference_score=preference_score
         )
 
-        # Decrement gate timers for the next state
+        # 4. Apply Dynamics (Tick time forward)
+        # Decrease all occupied gate timers by 1, floor at 0
         next_gates = [max(0, g - 1) for g in next_gates]
 
-        # Note: This simulation does not account for new arrivals at t+1.
-        # This is a common simplification in ADP forward models, where the focus
-        # is on the immediate consequence of the action. The stochasticity of
-        # arrivals is handled by the VFA learning from actual transitions.
-        
-        hypothetical_next_state = AirportState(
+        # 5. Inject Expected Future Arrivals
+        # The agent expects planes scheduled for the next minute to appear in the queue
+        new_flights = self._arrivals_map.get(next_t, [])
+        for f in new_flights:
+            next_queue.append(f.flight_id)
+
+        # 6. Package back into an immutable state
+        next_state = AirportState(
             t=next_t,
             gates=tuple(next_gates),
             runway_queue=tuple(next_queue)
         )
 
-        return hypothetical_next_state, reward, done
+        return next_state, reward, is_done
 
     def _process_arrivals(self, time: int):
         """Helper to inject new arrivals into the system."""
@@ -269,6 +265,6 @@ class AirportEnvironment:
         """Create an immutable AirportState from current mutable internals."""
         return AirportState(
             t=self.t,
-            gates=tuple(self._current_gates.tolist()),
+            gates=tuple(self._gate_available_time.tolist()),
             runway_queue=tuple(self._current_queue)
         )

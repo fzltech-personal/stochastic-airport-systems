@@ -26,12 +26,18 @@ from src.representation.graph_builder import StateGraph
 from src.representation.spectral import PVFCreator
 
 
-def main():
+def main(scenario_filename: str):
+    # --- EASILY SWITCH SCENARIOS HERE ---
+    # scenario_filename = "greedy_trap.yaml" # Change to "greedy_trap.yaml" when ready!
+    # ------------------------------------
+
     # 1. Load and prepare scenario
-    config_path = ProjectPaths.get_configs_dir() / "scenarios/morning_rush.yaml"
+    config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
+    scenario_prefix = config_path.stem # Extracts "morning_rush" or "greedy_trap"
+
     scenario = ScenarioLoader.from_yaml(config_path)
 
-    print("Generating synthetic schedule...")
+    print(f"Generating synthetic schedule for: {scenario_prefix}...")
     rng = np.random.default_rng(42)  # Use a fixed seed for reproducible graphs
     flights = ScheduleGenerator.generate(
         scenario_name=scenario.schedule.scenario_name,
@@ -94,22 +100,27 @@ def main():
     print("Computing Proto-Value Functions...")
     basis_functions = PVFCreator.compute_basis(sub_adj, num_features)
 
-    # 6. Save Artifacts
+    # 6. Save Artifacts with Scenario Prefix!
     data_dir = ProjectPaths.get_data_dir() / "processed"
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(data_dir / "basis_functions.npy", basis_functions)
+    np.save(data_dir / f"{scenario_prefix}_basis_functions.npy", basis_functions)
 
-    with open(data_dir / "state_mapping.pkl", "wb") as f:
+    with open(data_dir / f"{scenario_prefix}_state_mapping.pkl", "wb") as f:
         pickle.dump(sub_nodes, f)
 
     # Optional: Save the graph itself for the visualizer
-    nx.write_gpickle(G_sub, data_dir / "state_graph.gpickle") \
-        if hasattr(nx, 'write_gpickle') \
-        else pickle.dump(G_sub, open(data_dir / "state_graph.pkl", "wb"))
+    if hasattr(nx, 'write_gpickle'):
+        nx.write_gpickle(G_sub, data_dir / f"{scenario_prefix}_state_graph.gpickle")
+    else:
+        pickle.dump(G_sub, open(data_dir / f"{scenario_prefix}_state_graph.pkl", "wb"))
 
-    print(f"SUCCESS: Pipeline Step 1 complete. Artifacts saved to {data_dir}")
+    print(f"SUCCESS: Pipeline Step 1 complete. Artifacts saved to {data_dir} with prefix '{scenario_prefix}_'")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    # Grab the argument from the orchestrator, or default to morning_rush if running manually
+    scenario_arg = sys.argv[1] if len(sys.argv) > 1 else "morning_rush.yaml"
+    main(scenario_arg)

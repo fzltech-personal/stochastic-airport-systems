@@ -67,3 +67,11 @@ fleet_mixes:
     regional: 0.05
     narrow-body: 0.70
     wide-body: 0.25
+
+  heavy_trap_mix:
+      regional: 0.0
+      narrow-body: 0.0
+      wide-body: 0.70
+      super-heavy: 0.30
+      cargo-small: 0.0
+      cargo-heavy: 0.0

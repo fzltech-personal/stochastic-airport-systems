@@ -1,0 +1,32 @@
+name: "The Super-Heavy Trap"
+
+airport: "configs/airports/schiphol.yaml"
+
+# We will use a custom mix to guarantee a clash of Heavy aircraft
+fleet_mix: "heavy_trap_mix"
+
+schedule:
+  scenario_name: "A380 Bottleneck"
+  num_flights: 50
+  generation_params:
+    arrival_pattern: "normal_peak"
+    time_window: [ 30, 90 ]  # Flights arrive between t=30 and t=90
+    peak_time: 60          # Peak traffic at 1 hour in
+    peak_std: 15
+    runway_assignment: "uniform"
+    runway_occupancy_time: 2
+
+noise_model:
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 5
+
+rewards: "configs/components/reward_structures.yaml"
+# Assuming you have a standard delay-heavy reward profile
+reward_profile: "morning_rush_rewards"
+
+time:
+  horizon: 360 # Shorter horizon
+  timestep: 1
+  S_max: 30

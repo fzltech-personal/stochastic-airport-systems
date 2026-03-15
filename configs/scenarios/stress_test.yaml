@@ -1,0 +1,30 @@
+name: "The Ultimate Stress Test"
+
+airport: "configs/airports/schiphol.yaml"
+fleet_mix: "heavy_trap_mix" # 70% Wide-body, 30% Super-heavy
+
+schedule:
+  scenario_name: "Schiphol Meltdown"
+  num_flights: 2
+  generation_params:
+    arrival_pattern: "poisson_rate"
+    hourly_rate: 45
+    time_window: [30, 240]  # Flights arrive over 3.5 hours
+    peak_time: 120          # Peak traffic at the 2-hour mark
+    peak_std: 45
+    runway_assignment: "uniform"
+    runway_occupancy_time: 2
+
+noise_model:
+  distribution: "normal"
+  params:
+    mean: 0
+    std: 5
+
+rewards: "configs/components/reward_structures.yaml"
+reward_profile: "morning_rush_rewards"
+
+time:
+  horizon: 480 # 8-hour simulation to allow the backlog to clear
+  timestep: 1
+  S_max: 60
