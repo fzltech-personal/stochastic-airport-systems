@@ -1,10 +1,6 @@
-"""
-Arrival time noise model configuration.
-"""
+from attrs import frozen, field
 from typing import Dict, Literal, Optional
 import numpy as np
-from attrs import frozen, field
-
 
 @frozen
 class NoiseModelConfig:
@@ -53,3 +49,8 @@ class NoiseModelConfig:
     def __str__(self) -> str:
         param_str = ", ".join(f"{k}={v}" for k, v in self.params.items())
         return f"NoiseModel({self.distribution}, {param_str})"
+
+@frozen
+class NoiseModelsConfig:
+    arrival: NoiseModelConfig
+    service: NoiseModelConfig

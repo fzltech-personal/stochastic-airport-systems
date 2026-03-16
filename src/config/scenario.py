@@ -7,7 +7,7 @@ from attrs import frozen, field
 
 from .airport import AirportTopologyConfig
 from .compatibility import CompatibilityConfig
-from .noise import NoiseModelConfig
+from .noise import NoiseModelsConfig
 from .reward import RewardConfig
 from .time import TimeConfig
 from .schedule import ScheduleConfig
@@ -28,7 +28,7 @@ class ScenarioConfig:
     aircraft_types: List[AircraftTypeConfig]
     compatibility: CompatibilityConfig
     schedule: ScheduleConfig
-    noise_model: NoiseModelConfig
+    noise_models: NoiseModelsConfig
     rewards: RewardConfig
     time: TimeConfig
 

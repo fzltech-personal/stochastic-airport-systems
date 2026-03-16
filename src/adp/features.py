@@ -50,29 +50,42 @@ class PVFFeatureExtractor:
 
     def extract_features(self, state: Any) -> np.ndarray:
         """Extracts feature vector phi(s) for a given state, with caching."""
-        # Use a hashable representation of the state as the cache key
-        cache_key = (state.t, state.gates, state.runway_queue)
-        if cache_key in self._cache:
-            return self._cache[cache_key]
-
         resource_state: Tuple = getattr(state, "resource_state", None)
         if resource_state is None:
             return np.zeros(self.num_features, dtype=np.float64)
 
+        # 1. Try exact match from the original graph (O(1))
+        # We still want to do this first because it bypasses flattening entirely if we get a hit
         idx = self._state_to_idx.get(resource_state)
         if idx is not None:
             self.seen_count += 1
-            features = self._basis_matrix[idx]
-        else:
-            self.unseen_count += 1
-            flat_state = self._flatten_state(resource_state).reshape(1, -1)
-            _, indices = self.knn.kneighbors(flat_state)
-            nearest_idx = indices[0][0]
-            self._state_to_idx[resource_state] = nearest_idx
-            features = self._basis_matrix[nearest_idx]
+            return self._basis_matrix[idx]
 
-        # Store result in cache before returning
+        # 2. State is not an exact graph node. Flatten it for KNN and check cache.
+        flat_state = self._flatten_state(resource_state)
+        
+        # Create a hashable cache key from the numerical array
+        # This strips out 't' and specific string IDs that ruin cache hit rates
+        cache_key = tuple(np.round(flat_state, decimals=4).flatten())
+        
+        if cache_key in self._cache:
+            self.seen_count += 1 # A cache hit effectively counts as "seen" instantly
+            return self._cache[cache_key]
+
+        # 3. Cache Miss: Run KNN (Expensive!)
+        self.unseen_count += 1
+        flat_state_2d = flat_state.reshape(1, -1)
+        _, indices = self.knn.kneighbors(flat_state_2d)
+        nearest_idx = indices[0][0]
+        
+        features = self._basis_matrix[nearest_idx]
+
+        # 4. Store result in cache before returning
         self._cache[cache_key] = features
+        
+        # Also store the exact mapping so step 1 catches it next time (optimization upon optimization!)
+        self._state_to_idx[resource_state] = nearest_idx
+        
         return features
 
     def print_stats(self):
@@ -80,5 +93,5 @@ class PVFFeatureExtractor:
         if total > 0:
             unseen_pct = (self.unseen_count / total) * 100
             print(
-                f"  [Extractor] State hits: Exact={self.seen_count}, KNN Generalization={self.unseen_count} ({unseen_pct:.1f}%)")
+                f"  [Extractor] State hits (Exact/Cache): {self.seen_count}, KNN Lookups: {self.unseen_count} ({unseen_pct:.1f}% unique)")
             print(f"  [Extractor] Cache size: {len(self._cache)}")

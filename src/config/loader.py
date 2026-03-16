@@ -10,7 +10,7 @@ from src.utils.paths import ProjectPaths  # Reliable path resolution
 from .scenario import ScenarioConfig
 from .airport import AirportTopologyConfig
 from .compatibility import CompatibilityConfig
-from .noise import NoiseModelConfig
+from .noise import NoiseModelConfig, NoiseModelsConfig
 from .reward import RewardConfig
 from .time import TimeConfig
 from .schedule import ScheduleConfig
@@ -205,11 +205,33 @@ class ScenarioLoader:
             schedule_file=schedule_file
         )
 
-        # 5. Parse Noise Model
-        noise_model = NoiseModelConfig(
-            distribution=data['noise_model']['distribution'],
-            params=data['noise_model']['params']
-        )
+        # 5. Parse Noise Models
+        noise_data = data.get('noise_models')
+        if noise_data:
+            arrival_model = NoiseModelConfig(
+                distribution=noise_data['arrival']['distribution'],
+                params=noise_data['arrival']['params']
+            )
+            service_model = NoiseModelConfig(
+                distribution=noise_data['service']['distribution'],
+                params=noise_data['service']['params']
+            )
+            noise_models = NoiseModelsConfig(arrival=arrival_model, service=service_model)
+        else:
+            # Fallback for old configs
+            old_noise = data.get('noise_model')
+            if old_noise:
+                arrival_model = NoiseModelConfig(
+                    distribution=old_noise['distribution'],
+                    params=old_noise['params']
+                )
+            else:
+                arrival_model = NoiseModelConfig()
+            
+            # Create a default zero-noise service model
+            service_model = NoiseModelConfig(distribution='normal', params={'mean': 0, 'std': 0})
+            noise_models = NoiseModelsConfig(arrival=arrival_model, service=service_model)
+
 
         # 6. Load Rewards
         rewards_path_str = data.get('rewards')
@@ -246,7 +268,7 @@ class ScenarioLoader:
             aircraft_types=aircraft_types,
             compatibility=compatibility,
             schedule=schedule,
-            noise_model=noise_model,
+            noise_models=noise_models,
             rewards=rewards,
             time=time
         )

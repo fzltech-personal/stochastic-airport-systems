@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 import time
 import argparse
+from datetime import datetime
 
 
 def run_script(script_path: Path, args_list: list):
@@ -32,6 +33,9 @@ def run_script(script_path: Path, args_list: list):
 
 
 def main():
+    # Generate a consistent timestamp for all evaluation artifacts produced in this run
+    run_timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M")
+
     parser = argparse.ArgumentParser(description="Run the ADP Airport Pipeline.")
     parser.add_argument("scenario", type=str, help="The YAML scenario file to run (e.g., stress_test.yaml)")
     parser.add_argument("--train", action="store_true", help="Include this flag to run training steps (01, 02, 03)")
@@ -65,6 +69,7 @@ def main():
     print(f"   Scenario Traffic: {scenario_filename}")
     print(f"   AI Brain (Model): {model_prefix}")
     print(f"   Mode: {'TRAIN + EVALUATE' if args.train else 'EVALUATE ONLY'}")
+    print(f"   Run Timestamp:    {run_timestamp}")
 
     # 1. Run Training Steps (Only if --train flag is present)
     if args.train:
@@ -84,7 +89,15 @@ def main():
         script_path = experiments_dir / step
         if script_path.exists():
             # Evaluation scripts need BOTH the scenario traffic and the specific model brain to load
-            run_script(script_path, [scenario_filename, model_prefix])
+            # and now also the run timestamp
+            args_list = [scenario_filename]
+            
+            # The model_prefix is passed to 04 and 05 (not 01b)
+            if step in ["04_evaluate_policy.py", "05_visualize_schedule.py"]:
+                args_list.append(model_prefix)
+                
+            args_list.extend(["--timestamp", run_timestamp])
+            run_script(script_path, args_list)
         else:
             print(f"\n⚠️ WARNING: Could not find {step}. Skipping...")
 

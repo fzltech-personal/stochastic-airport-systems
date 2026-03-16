@@ -7,6 +7,7 @@ for downstream training and visualization.
 """
 import sys
 import pickle
+import argparse
 from pathlib import Path
 import networkx as nx
 import numpy as np
@@ -26,14 +27,19 @@ from src.representation.graph_builder import StateGraph
 from src.representation.spectral import PVFCreator
 
 
-def main(scenario_filename: str):
-    # --- EASILY SWITCH SCENARIOS HERE ---
-    # scenario_filename = "greedy_trap.yaml" # Change to "greedy_trap.yaml" when ready!
-    # ------------------------------------
-
-    # 1. Load and prepare scenario
+def main(scenario_filename: str, force_rebuild: bool = False):
     config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
-    scenario_prefix = config_path.stem # Extracts "morning_rush" or "greedy_trap"
+    scenario_prefix = config_path.stem
+
+    # --- CACHE CHECK ---
+    data_dir = ProjectPaths.get_data_dir() / "processed"
+    pvf_path = data_dir / f"{scenario_prefix}_basis_functions.npy"
+    
+    if not force_rebuild and pvf_path.exists():
+        print(f"⚡ Cache hit! Graph and PVF artifacts already exist for '{scenario_prefix}'.")
+        print("Skipping generation. Run with --force to rebuild.")
+        return
+    # -------------------
 
     scenario = ScenarioLoader.from_yaml(config_path)
 
@@ -101,7 +107,6 @@ def main(scenario_filename: str):
     basis_functions = PVFCreator.compute_basis(sub_adj, num_features)
 
     # 6. Save Artifacts with Scenario Prefix!
-    data_dir = ProjectPaths.get_data_dir() / "processed"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     np.save(data_dir / f"{scenario_prefix}_basis_functions.npy", basis_functions)
@@ -119,8 +124,18 @@ def main(scenario_filename: str):
 
 
 if __name__ == "__main__":
-    import sys
-
-    # Grab the argument from the orchestrator, or default to morning_rush if running manually
-    scenario_arg = sys.argv[1] if len(sys.argv) > 1 else "morning_rush.yaml"
-    main(scenario_arg)
+    parser = argparse.ArgumentParser(description="Generate Proto-Value Functions for a scenario.")
+    parser.add_argument(
+        "scenario", 
+        nargs="?", 
+        default="morning_rush.yaml", 
+        help="The scenario YAML file to use (default: morning_rush.yaml)"
+    )
+    parser.add_argument(
+        "--force", 
+        action="store_true", 
+        help="Force rebuild of the graph and PVFs even if cached artifacts exist."
+    )
+    
+    args = parser.parse_args()
+    main(args.scenario, force_rebuild=args.force)

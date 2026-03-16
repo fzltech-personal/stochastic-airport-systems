@@ -36,14 +36,14 @@ class TD0Learner:
         """
         for state, action, reward, next_state in trajectory:
             # Extract features for the current state
-            phi: np.ndarray = self.extractor.get_features(state)
+            phi: np.ndarray = self.extractor.extract_features(state)
 
             if next_state is None:
                 # Terminal state: TD Target is just the reward
                 target: float = reward
             else:
                 # Next state features and predicted value
-                next_phi: np.ndarray = self.extractor.get_features(next_state)
+                next_phi: np.ndarray = self.extractor.extract_features(next_state)
                 # Calculate TD Target
                 target: float = reward + self.gamma * self.vfa.predict(next_phi)
 

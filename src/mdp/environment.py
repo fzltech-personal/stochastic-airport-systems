@@ -59,16 +59,39 @@ class AirportEnvironment:
         self.done: bool = False
 
     def _init_arrivals_map(self):
-        """Populate the arrivals map from the scenario schedule."""
+        """Populate the arrivals map from the scenario schedule, applying stochastic noise."""
         flights = self.scenario.schedule.get_flights()
+        
+        # We need a random generator for sampling delays.
+        # Using a new generator without a fixed seed means it will be stochastic on every run.
+        rng = np.random.default_rng()
+        
         for sched_flight in flights:
             if sched_flight.direction == "arrival":
+                # Base scheduled time
                 arrival_time = sched_flight.scheduled_time
+                
+                # Apply noise from the scenario configuration (arrival noise)
+                if getattr(self.scenario, 'noise_models', None) and self.scenario.noise_models.arrival:
+                    delay_float = self.scenario.noise_models.arrival.sample(rng=rng, size=1)[0]
+                    delay_minutes = int(round(delay_float))
+                elif getattr(self.scenario, 'noise_model', None):
+                    # Fallback for old configs
+                    delay_float = self.scenario.noise_model.sample(rng=rng, size=1)[0]
+                    delay_minutes = int(round(delay_float))
+                else:
+                    delay_minutes = 0
+                
+                # Calculate actual arrival time and ensure it doesn't go below 0
+                actual_arrival_time = max(0, arrival_time + delay_minutes)
+                
                 active_flight = ActiveFlight(
                     schedule=sched_flight,
-                    actual_arrival_time=arrival_time
+                    actual_arrival_time=actual_arrival_time
                 )
-                self._arrivals_map[arrival_time].append(active_flight)
+                
+                # Map the flight using the actual (stochastic) arrival time
+                self._arrivals_map[actual_arrival_time].append(active_flight)
 
     def reset(self) -> AirportState:
         """
@@ -103,14 +126,23 @@ class AirportEnvironment:
         flight_id = state.runway_queue[0]
         flight = self.active_flights[flight_id]
         
-        # Find compatible gates for the aircraft type
-        compatible_gates = self.scenario.airport.get_compatible_gates(flight.aircraft_type)
-        
         valid_actions = []
-        for gate_idx in compatible_gates:
-            # HARD CONSTRAINT: Gate must be free at the current time.
-            if state.gates[gate_idx] == 0:
-                valid_actions.append(Action(flight_id=flight_id, gate_idx=gate_idx))
+        num_gates = self.scenario.airport.num_gates
+        
+        try:
+            # We need the aircraft index to query compatibility efficiently
+            ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
+            
+            for gate_idx in range(num_gates):
+                # 1. HARD CONSTRAINT: Gate must be free at the current time.
+                if state.gates[gate_idx] == 0:
+                    # 2. COMPATIBILITY: Gate must be compatible with aircraft type
+                    if self.scenario.compatibility.is_compatible_idx(ac_idx, gate_idx):
+                        valid_actions.append(Action(flight_id=flight_id, gate_idx=gate_idx))
+                        
+        except KeyError:
+            # If the aircraft type somehow isn't in the config, it can't dock anywhere.
+            pass
 
         # If no gates are available for this flight, the only option is to hold.
         # This is represented by a NO_OP action. The simulation will advance,
@@ -147,7 +179,24 @@ class AirportEnvironment:
                 
                 taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, gate_idx)
                 base_service = self._base_service_times[flight.aircraft_type]
-                total_service_time = int(base_service + taxi_time)
+                
+                # Sample stochastic service time
+                rng = np.random.default_rng()
+                if getattr(self.scenario, 'noise_models', None) and self.scenario.noise_models.service:
+                    # Create a temporary noise model overriding the mean to be base_service
+                    # We assume distribution is normal as per the new structure
+                    service_std = self.scenario.noise_models.service.params.get('std', 0)
+                    if service_std > 0:
+                        sampled_service = rng.normal(loc=base_service, scale=service_std)
+                    else:
+                        sampled_service = base_service
+                else:
+                    sampled_service = base_service
+                
+                # Ensure it doesn't go below a minimum of 15 minutes
+                actual_service = max(15, int(round(sampled_service)))
+                
+                total_service_time = actual_service + taxi_time
                 
                 # Set the gate's timer to the total service duration
                 self._gate_available_time[gate_idx] = total_service_time
@@ -215,7 +264,21 @@ class AirportEnvironment:
 
                 flight = self.active_flights[action.flight_id]
                 taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, action.gate_idx)
-                total_service = int(self._base_service_times[flight.aircraft_type] + taxi_time)
+                base_service = self._base_service_times[flight.aircraft_type]
+                
+                # Sample stochastic service time
+                rng = np.random.default_rng()
+                if getattr(self.scenario, 'noise_models', None) and self.scenario.noise_models.service:
+                    service_std = self.scenario.noise_models.service.params.get('std', 0)
+                    if service_std > 0:
+                        sampled_service = rng.normal(loc=base_service, scale=service_std)
+                    else:
+                        sampled_service = base_service
+                else:
+                    sampled_service = base_service
+                
+                actual_service = max(15, int(round(sampled_service)))
+                total_service = actual_service + taxi_time
 
                 # Occupy the gate
                 next_gates[action.gate_idx] = total_service

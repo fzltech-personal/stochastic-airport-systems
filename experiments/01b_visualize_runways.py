@@ -8,6 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import TABLEAU_COLORS
+import argparse
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -17,9 +19,12 @@ from src.config.loader import ScenarioLoader
 from src.mdp.components.schedule_generator import ScheduleGenerator
 
 
-def main(scenario_filename: str):
+def main(scenario_filename: str, timestamp: str = None):
     config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
     scenario_prefix = config_path.stem
+    
+    if not timestamp:
+        timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M")
 
     print(f"Loading Scenario '{scenario_prefix}' for runway visualization...")
     scenario = ScenarioLoader.from_yaml(config_path)
@@ -42,6 +47,12 @@ def main(scenario_filename: str):
     if not flights:
         print("No flights generated! Check your time_window or generation_params.")
         return
+
+    # Save the generated schedule as an artifact for reproducible evaluation
+    json_path = ProjectPaths.get_data_dir() / f"schedules/synthetic/{scenario_prefix}_eval_schedule.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    ScheduleGenerator.save_schedule(flights, json_path)
+    print(f"Saved evaluation schedule to {json_path}")
 
     # Get occupancy time for block width
     occ_time = scenario.schedule.generation_params.get('runway_occupancy_time', 2)
@@ -82,17 +93,19 @@ def main(scenario_filename: str):
 
     plt.tight_layout()
 
-    # Save output
-    output_dir = ProjectPaths.get_root() / "experiments/results/plots"
+    # Save output with timestamp
+    output_dir = ProjectPaths.get_root() / f"experiments/results/plots/{scenario_prefix}"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{scenario_prefix}_runway_schedule.png"
+    output_path = output_dir / f"{timestamp}_{scenario_prefix}_runway_schedule.png"
 
     plt.savefig(output_path)
     print(f"Runway schedule visualized and saved to: {output_path}")
 
 
 if __name__ == "__main__":
-    import sys
-
-    scenario_arg = sys.argv[1] if len(sys.argv) > 1 else "morning_rush.yaml"
-    main(scenario_arg)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("scenario", nargs="?", default="morning_rush.yaml")
+    parser.add_argument("--timestamp", type=str, default=None)
+    
+    args = parser.parse_args()
+    main(args.scenario, timestamp=args.timestamp)

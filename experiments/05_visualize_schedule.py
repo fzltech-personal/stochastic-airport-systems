@@ -8,49 +8,48 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import TABLEAU_COLORS
+import argparse
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.utils.paths import ProjectPaths
 from src.config.loader import ScenarioLoader
-from src.mdp.components.schedule_generator import ScheduleGenerator
 from src.mdp.environment import AirportEnvironment
 from src.simulation.simulator import Simulator
 from src.adp.features import PVFFeatureExtractor
 from src.adp.value_function import LinearVFA
 from src.adp.policies import ADPPolicy
+from attr import evolve
 
 
-def main(scenario_filename: str, model_prefix: str):
-    # --- EASILY SWITCH SCENARIOS HERE ---
-    # scenario_filename = "greedy_trap.yaml"
-    # ------------------------------------
-
+def main(scenario_filename: str, model_prefix: str, timestamp: str = None):
     config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
-    # scenario_prefix = config_path.stem
+    scenario_prefix = config_path.stem
+
+    if not timestamp:
+        timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M")
 
     print(f"Loading Scenario '{model_prefix}'...")
     scenario = ScenarioLoader.from_yaml(config_path)
 
-    # Use a fixed seed so we get a reproducible, clean schedule
-    rng = np.random.default_rng(999)
-    flights = ScheduleGenerator.generate(
-        scenario_name=scenario.schedule.scenario_name,
-        num_flights=scenario.schedule.num_flights,
-        generation_params=scenario.schedule.generation_params,
-        num_runways=scenario.airport.num_runways,
-        aircraft_types=scenario.aircraft_types,
-        rng=rng
-    )
+    # Load the schedule from the saved artifact
+    json_path = ProjectPaths.get_data_dir() / f"schedules/synthetic/{scenario_prefix}_eval_schedule.json"
+    if not json_path.exists():
+        # Fallback to processed dir if missing in synthetic
+        json_path = ProjectPaths.get_data_dir() / f"processed/{scenario_prefix}_eval_schedule.json"
+        
+    if not json_path.exists():
+        print(f"!!! ERROR: Schedule artifact '{json_path}' not found.")
+        print(f"Please run 01b_visualize_runways.py with '{scenario_filename}' first!")
+        return
 
-    from attr import evolve
     new_schedule = evolve(
         scenario.schedule,
-        flights=flights,
+        schedule_file=str(json_path),
         generation_params=None,
-        schedule_file=None,
-        num_flights=len(flights)
+        flights=None
     )
     scenario = evolve(scenario, schedule=new_schedule)
     env = AirportEnvironment(scenario)
@@ -79,32 +78,33 @@ def main(scenario_filename: str, model_prefix: str):
 
     # --- EXTRACT DATA FOR GANTT CHART ---
     assignments = []
+    queue_lengths = []
+    times = []
     step_counter = 0
 
+    # Get the flights correctly
+    flights = env.scenario.schedule.get_flights()
+
     for state, action, reward, next_state in trajectory:
+        # Extract queue data for every step
+        queue_lengths.append(len(state.runway_queue))
+        times.append(state.t)
+        
         if not getattr(action, 'is_noop', True):
 
             # 1. Search the list for the matching flight object
-            flight = next((f for f in env.scenario.schedule.flights if f.flight_id == action.flight_id), None)
+            flight = next((f for f in flights if f.flight_id == action.flight_id), None)
 
-            # 2. Safely extract attributes if the flight was found
+            # 2. Extract attributes
             if flight:
                 ac_type = flight.aircraft_type
-                
-                # Check for linked flight to calculate true duration
-                if flight.linked_flight_id:
-                    linked_flight = next((f for f in env.scenario.schedule.flights if f.flight_id == flight.linked_flight_id), None)
-                    if linked_flight:
-                        # Assuming departure time > arrival time
-                        duration = abs(linked_flight.scheduled_time - flight.scheduled_time)
-                    else:
-                        print(f"!!! WARNING: Linked flight '{flight.linked_flight_id}' not found!")
-                        duration = 45 # Fallback if linked flight not found
-                else:
-                    duration = 45 # Fallback if no linked_flight_id
             else:
                 ac_type = 'Unknown'
-                duration = 45
+
+            # Calculate exact duration by looking at what the environment actually locked in!
+            # The next_state reflects the timer exactly 1 minute *after* the assignment.
+            # So the total duration is next_state.gates[gate] + 1
+            duration = next_state.gates[action.gate_idx] + 1
 
             assignment_time = getattr(state, 'time',
                                       getattr(state, 'current_time',
@@ -164,21 +164,47 @@ def main(scenario_filename: str, model_prefix: str):
     plt.tight_layout()
 
     # Save output
-    output_dir = ProjectPaths.get_root() / "experiments/results/plots"
+    output_dir = ProjectPaths.get_root() / f"experiments/results/plots/{scenario_prefix}"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{scenario_filename}_gantt_chart.png"
+    gantt_path = output_dir / f"{timestamp}_{scenario_prefix}_gantt_chart.png"
 
-    plt.savefig(output_path)
-    print(f"Schedule visualized and saved to: {output_path}")
+    plt.savefig(gantt_path)
+    print(f"Schedule visualized and saved to: {gantt_path}")
+    plt.close(fig) # Close the figure to free memory
+    
+    # --- PLOT THE QUEUE LENGTH ---
+    print("Plotting Queue Length...")
+    
+    fig2, ax2 = plt.subplots(figsize=(12, 4))
+    
+    ax2.plot(times, queue_lengths, color='red', linewidth=2, label="Queue Length")
+    ax2.fill_between(times, queue_lengths, 0, color='red', alpha=0.3)
+    
+    # Formatting the queue chart
+    ax2.set_xlabel("Time (Minutes)")
+    ax2.set_ylabel("Number of Planes Waiting")
+    ax2.set_title(f"Taxiway Queue Over Time ({model_prefix.upper()})")
+    ax2.grid(True, linestyle='--', alpha=0.6)
+    ax2.set_xlim(min(times), max(times))
+    ax2.set_ylim(bottom=0) # Queue can't go below 0
+    ax2.legend()
+    
+    plt.tight_layout()
+    
+    queue_path = output_dir / f"{timestamp}_{scenario_prefix}_queue_length.png"
+    plt.savefig(queue_path)
+    print(f"Queue length visualized and saved to: {queue_path}")
 
 
 if __name__ == "__main__":
-    import sys
-
-    scenario_arg = sys.argv[1] if len(sys.argv) > 1 else "morning_rush.yaml"
-
-    # Grab the model prefix if provided, otherwise assume it matches the scenario
-    model_arg = sys.argv[2] if len(sys.argv) > 2 else Path(scenario_arg).stem
-
-    # Pass BOTH into main
-    main(scenario_arg, model_arg)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("scenario", nargs="?", default="morning_rush.yaml")
+    parser.add_argument("model", nargs="?", default=None)
+    parser.add_argument("--timestamp", type=str, default=None)
+    
+    args = parser.parse_args()
+    
+    scenario_filename = args.scenario
+    model_prefix = args.model if args.model else Path(scenario_filename).stem
+    
+    main(scenario_filename, model_prefix, timestamp=args.timestamp)
