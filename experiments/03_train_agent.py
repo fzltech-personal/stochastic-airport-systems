@@ -96,18 +96,27 @@ def main(scenario_filename: str, continue_training: bool = False):
     # 6. Training Loop
     num_episodes = 100
     print(f"Training ADP Agent on '{scenario_prefix}' from episode {start_episode} to {num_episodes}...")
-    
-    for episode in tqdm(range(start_episode, num_episodes), initial=start_episode, total=num_episodes):
-        trajectory = simulator.run_episode()
-        learner.learn_from_trajectory(trajectory)
-        policy.epsilon = max(0.01, policy.epsilon * 0.95)
+    pbar = tqdm(range(start_episode, num_episodes), initial=start_episode, total=num_episodes)
 
-        total_reward = sum(reward for _, _, reward, _ in trajectory)
-        episode_rewards.append(total_reward)
-        
-        # --- SAVE CHECKPOINT AT THE END OF EACH EPISODE ---
-        np.save(theta_path, vfa.theta)
-        np.save(rewards_path, np.array(episode_rewards))
+    try:
+        for episode in pbar:
+            trajectory = simulator.run_episode()
+            learner.learn_from_trajectory(trajectory)
+            policy.epsilon = max(0.01, policy.epsilon * 0.95)
+
+            total_reward = sum(reward for _, _, reward, _ in trajectory)
+            episode_rewards.append(total_reward)
+
+            pbar.set_postfix({
+                "Reward": f"{total_reward:.1f}",
+                "Epsilon": f"{policy.epsilon:.3f}"
+            })
+            
+            # --- SAVE CHECKPOINT AT THE END OF EACH EPISODE ---
+            np.save(theta_path, vfa.theta)
+            np.save(rewards_path, np.array(episode_rewards))
+    except KeyboardInterrupt:
+        print("\n⚠️ Training interrupted by user! Gracefully exiting and generating training curve...")
 
     # 7. Plot Learning Curve
     plt.figure(figsize=(10, 5))
