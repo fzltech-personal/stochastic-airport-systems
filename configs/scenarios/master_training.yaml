@@ -2,9 +2,8 @@ name: "ADP Foundation Model Training"
 
 airport: "configs/airports/schiphol.yaml"
 
-# Use a mix that forces the AI to use the ENTIRE airport, not just the heavy gates.
-# Assuming you have a standard or balanced mix in your configs.
-# (e.g., 50% narrow, 35% wide, 15% super-heavy)
+# Hub mix: realistic Schiphol distribution (55% NB, 25% WB, 15% regional, 2% super-heavy, 3% cargo-heavy).
+# Forces the agent to use the full airport across all gate categories.
 fleet_mix: "hub_airport_mix"
 
 schedule:
@@ -12,8 +11,8 @@ schedule:
   num_flights: 2 # Dummy value, overridden by poisson generator
   generation_params:
     arrival_pattern: "poisson_rate"
-    hourly_rate: 35         # Pushes the airport right to the edge of capacity, but not over it
-    time_window: [30, 390]  # 7 hours of sustained, heavy arrivals
+    hourly_rate: 55         # ~74% wide-body gate utilization, ~65% narrow-body utilization.
+    time_window: [30, 390]  # 6 hours of sustained heavy arrivals (~330 flights expected)
     runway_assignment: "uniform"
     runway_occupancy_time: 1
 
@@ -29,9 +28,9 @@ noise_models:
       std: 10  # The mean is automatically the aircraft's base_service
 
 rewards: "configs/components/reward_structures.yaml"
-reward_profile: "morning_rush_rewards"
+reward_profile: "high_load_rewards"
 
 time:
-  horizon: 720 # 10-hour simulation. Gives the AI 3 hours at the end to completely clear the queue and empty the airport.
+  horizon: 720 # 10-hour sim: ~3 hours after last arrival for the queue to clear.
   timestep: 1
   S_max: 60

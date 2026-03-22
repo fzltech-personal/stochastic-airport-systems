@@ -1,6 +1,6 @@
 import logging
 import pickle
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, List, Optional
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
@@ -26,16 +26,17 @@ class PVFFeatureExtractor:
 
         print("  [Extractor] Building KNN tree for unseen state generalization...")
         state_matrix = np.array([self._flatten_state(s) for s in self.state_list])
-        self.knn = NearestNeighbors(n_neighbors=1, metric='manhattan', n_jobs=-1)
+        # n_jobs=1: multiprocessing coordination overhead dominates for the small
+        # batch sizes we use, making n_jobs=-1 slower than single-threaded.
+        self.knn = NearestNeighbors(n_neighbors=1, metric='manhattan', n_jobs=1)
         self.knn.fit(state_matrix)
 
-        # Cache for memoization
         self._cache: Dict[Tuple, np.ndarray] = {}
         self.seen_count = 0
         self.unseen_count = 0
 
     def _flatten_state(self, resource_state: Tuple) -> np.ndarray:
-        """Flattens the nested state, keeping ONLY numerical values for KNN distance."""
+        """Flattens the nested state tuple, keeping ONLY numerical values for KNN distance."""
         flat = []
 
         def extract_numbers(item):
@@ -48,45 +49,74 @@ class PVFFeatureExtractor:
         extract_numbers(resource_state)
         return np.array(flat, dtype=np.float64)
 
+    def _extract_batch(self, resource_states: List[Optional[Tuple]]) -> np.ndarray:
+        """
+        Core batch extraction from a list of resource_state tuples.
+
+        Separates exact graph hits, cache hits, and KNN misses in a single pass,
+        then issues ONE knn.kneighbors() call for all misses.
+        """
+        n = len(resource_states)
+        result = np.zeros((n, self.num_features), dtype=np.float64)
+
+        miss_indices = []
+        miss_flat = []
+
+        for i, resource_state in enumerate(resource_states):
+            if resource_state is None:
+                continue
+
+            # 1. Exact graph node hit (O(1))
+            idx = self._state_to_idx.get(resource_state)
+            if idx is not None:
+                self.seen_count += 1
+                result[i] = self._basis_matrix[idx]
+                continue
+
+            # 2. Flatten and check secondary cache
+            flat = self._flatten_state(resource_state)
+            cache_key = tuple(np.round(flat, decimals=4))
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                self.seen_count += 1
+                result[i] = cached
+                continue
+
+            miss_indices.append((i, resource_state, cache_key))
+            miss_flat.append(flat)
+
+        # Single batch KNN call for all misses
+        if miss_flat:
+            self.unseen_count += len(miss_flat)
+            _, indices = self.knn.kneighbors(np.array(miss_flat))
+            for (i, resource_state, cache_key), nearest_idx in zip(miss_indices, indices[:, 0]):
+                features = self._basis_matrix[nearest_idx]
+                result[i] = features
+                self._cache[cache_key] = features
+                self._state_to_idx[resource_state] = nearest_idx
+
+        return result
+
     def extract_features(self, state: Any) -> np.ndarray:
-        """Extracts feature vector phi(s) for a given state, with caching."""
-        resource_state: Tuple = getattr(state, "resource_state", None)
-        if resource_state is None:
-            return np.zeros(self.num_features, dtype=np.float64)
+        """Extract feature vector for a single state object."""
+        resource_state = getattr(state, "resource_state", None)
+        return self._extract_batch([resource_state])[0]
 
-        # 1. Try exact match from the original graph (O(1))
-        # We still want to do this first because it bypasses flattening entirely if we get a hit
-        idx = self._state_to_idx.get(resource_state)
-        if idx is not None:
-            self.seen_count += 1
-            return self._basis_matrix[idx]
+    def extract_features_batch(self, states: list) -> np.ndarray:
+        """
+        Extract feature vectors for a list of state objects in one KNN call.
+        Used by the TD learner to batch the entire trajectory at once.
+        """
+        resource_states = [getattr(s, "resource_state", None) for s in states]
+        return self._extract_batch(resource_states)
 
-        # 2. State is not an exact graph node. Flatten it for KNN and check cache.
-        flat_state = self._flatten_state(resource_state)
-        
-        # Create a hashable cache key from the numerical array
-        # This strips out 't' and specific string IDs that ruin cache hit rates
-        cache_key = tuple(np.round(flat_state, decimals=4).flatten())
-        
-        if cache_key in self._cache:
-            self.seen_count += 1 # A cache hit effectively counts as "seen" instantly
-            return self._cache[cache_key]
-
-        # 3. Cache Miss: Run KNN (Expensive!)
-        self.unseen_count += 1
-        flat_state_2d = flat_state.reshape(1, -1)
-        _, indices = self.knn.kneighbors(flat_state_2d)
-        nearest_idx = indices[0][0]
-        
-        features = self._basis_matrix[nearest_idx]
-
-        # 4. Store result in cache before returning
-        self._cache[cache_key] = features
-        
-        # Also store the exact mapping so step 1 catches it next time (optimization upon optimization!)
-        self._state_to_idx[resource_state] = nearest_idx
-        
-        return features
+    def extract_resource_states_batch(self, resource_states: list) -> np.ndarray:
+        """
+        Extract feature vectors for a list of resource_state tuples directly.
+        Used by the ADPPolicy lookahead, which produces resource_states without
+        creating full AirportState objects.
+        """
+        return self._extract_batch(resource_states)
 
     def print_stats(self):
         total = self.seen_count + self.unseen_count

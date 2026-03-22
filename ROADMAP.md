@@ -1,192 +1,179 @@
-### Architectural Summary
+# Roadmap
 
-This roadmap transforms the current "Static Configuration System" into a "Dynamic Stochastic Optimization Engine."
+The end goal is a **practical gate assignment system** that an airport operations team can use in real time: import the schedule for the coming hours, provide the current airport state and any known delays, and receive an optimised gate assignment plan. The system is backed by a trained ADP policy and exposed through a REST API, with an optional frontend for interactive use.
 
-The architecture follows a strict Separation of Concerns:
-1.  **MDP Layer:** Pure mathematical rules of the airport (State, Transition, Reward).
-2.  **Simulation Layer:** The engine that drives time forward and manages stochastic realizations (Random variables).
-3.  **Representation Layer:** The offline learner that compresses the state space into basis functions (Spectral/Graph theory).
-4.  **ADP Layer:** The online learner that estimates value functions using those basis functions (Bellman equations).
+The architecture is built in layers with strict separation of concerns:
 
----
-
-### Phase 1: Foundation & Refactoring
-
-**Goal:** Prepare the data structures for dynamic simulation by separating "Configuration" from "Runtime State" and fixing technical debt in resource loading.
-
-#### Step 1.1: Split Flight Entity
-**Target Files:**
-* `src/mdp/components/flight.py` (Modify)
-* `src/simulation/realization.py` (Create)
-
-**Architectural Actions:**
-* Rename `Flight` to `ScheduledFlight`. Make it fully immutable (`frozen=True`). This represents the Master Schedule.
-* Create `ActiveFlight` (mutable). This represents a flight instance in the simulation. It wraps a `ScheduledFlight` but adds runtime attributes: `current_delay`, `actual_arrival_time`, `gate_assignment`, `status` (AIRBORNE, QUEUED, SERVICING, COMPLETED).
-
-**Mathematical/OR Implementation:**
-* Differentiation between parameter $t_{sched}$ (deterministic input) and random variable $T_{actual} = t_{sched} + \xi$ (stochastic realization).
-
-#### Step 1.2: Pathing & Resource Injection
-**Target Files:**
-* `src/config/loader.py` (Modify)
-* `src/utils/paths.py` (Create)
-
-**Architectural Actions:**
-* Remove hardcoded relative paths (`../../`).
-* Implement a `ProjectPaths` singleton or dependency injection mechanism to locate `configs/` and `data/` reliably from any execution context (IDE, CLI, Docker).
+1. **MDP Layer** — pure mathematical rules of the airport (State, Transition, Reward)
+2. **Simulation Layer** — stochastic episode execution and trajectory generation
+3. **Representation Layer** — offline spectral graph construction and PVF computation
+4. **ADP Layer** — value function learning and policy inference
+5. **Ingestion Layer** — bridging real operational data into the MDP representation
+6. **Inference Layer** — serving the trained policy against real input
+7. **API Layer** — REST interface for external systems and the frontend
+8. **Frontend** — interactive visualisation and manual override
 
 ---
 
-### Phase 2: The Core MDP Engine
+## Phase 1–5: Core Research System ✅
 
-**Goal:** Implement the mathematical definition of the system ($S, A, T, R$).
+The foundational MDP simulation, spectral representation learning, and TD training pipeline are implemented. Key components:
 
-#### Step 2.1: Define the State Space
-**Target Files:**
-* `src/mdp/state.py` (Implement)
-
-**Architectural Actions:**
-* Create class `AirportState`.
-* **Attributes:**
-    * `t` (int): Current timestep.
-    * `gates` (np.array): Vector of size $N_{gates}$. Value = remaining service time (0 = free).
-    * `runway_queue` (List[ActiveFlight]): Ordered list of aircraft waiting for gates.
-    * `arrivals` (List[ActiveFlight]): Incoming flights not yet in the queue (horizon view).
-* Implement `__hash__` and `__eq__` to allow states to be used as graph nodes later.
-
-**Mathematical/OR Implementation:**
-* $S_t = (t, \mathbf{g}_t, \mathbf{q}_t)$
-* $\mathbf{g}_t \in \mathbb{N}^{N_{gates}}$ where $g_i$ is residual time.
-
-#### Step 2.2: Define the Action Space
-**Target Files:**
-* `src/mdp/action.py` (Implement)
-
-**Architectural Actions:**
-* Create class `Action`.
-* **Structure:** A mapping or tuple `(flight_id, gate_idx)`.
-* Implement `ActionSpace` generator that filters invalid actions based on `CompatibilityConfig` (Hard Constraints).
-
-**Mathematical/OR Implementation:**
-* $A_t \subseteq \mathcal{A}$
-* Constraint checks: $C_{flight, gate} = 1$ (Compatible).
-
-#### Step 2.3: The Transition Logic (Step Function)
-**Target Files:**
-* `src/mdp/environment.py` (Implement)
-
-**Architectural Actions:**
-* Implement `AirportEnvironment`.
-* **Method `step(action)`:**
-    1.  **Apply Action:** Move flight from queue to gate. Set gate timer.
-    2.  **Dynamics:** Decrement all gate timers. Remove finished flights.
-    3.  **Stochasticity:** Ingest new arrivals from the schedule based on $t$.
-    4.  **Reward:** Calculate $R_t$.
-    5.  **Return:** `(next_state, reward, done, info)`.
-
-**Mathematical/OR Implementation:**
-* $S_{t+1} = f(S_t, A_t, W_{t+1})$
-* $W_{t+1}$ represents the stochastic arrival process.
+- `AirportState` / `Action` / `AirportEnvironment` with stochastic arrivals and service times
+- `StateGraph` + `PVFCreator` for offline basis function computation
+- `LinearVFA` + `TD0Learner` + `ADPPolicy` with one-step Bellman lookahead
+- MLOps pipeline scripts (`01` through `05`) and `run_pipeline.py` orchestrator
+- Scenario configs for Schiphol with realistic taxi matrices, fleet mixes, and compatibility constraints
 
 ---
 
-### Phase 3: The Simulation Loop
+## Phase 6: Real Schedule Ingestion
 
-**Goal:** Generate data. We need "Experiences" (Trajectories) to build the graph for the spectral methods.
+**Goal:** Accept a real flight schedule and current airport state as input, rather than relying on synthetic generation.
 
-#### Step 3.1: The Simulator Driver
-**Target Files:**
-* `src/simulation/simulator.py` (Create)
+### 6.1 Schedule Parser
 
-**Architectural Actions:**
-* Create `Simulator` class.
-* Accepts: `ScenarioConfig`, `Agent` (Policy).
-* **Loop:** Initialize `AirportEnvironment`. While $t < T_{max}$: get action from Agent, call `env.step()`, record tuple.
+Build an ingestion layer that reads external schedule formats and produces a list of `ScheduledFlight` objects.
 
-**Mathematical/OR Implementation:**
-* Monte Carlo simulation of sample path $\omega$.
-* Trajectory $\tau = \{(s_0, a_0, r_0), (s_1, a_1, r_1), \dots\}$.
+- Define a canonical internal schedule schema (JSON/CSV)
+- Implement parser for at least one real format (IATA SSIM or a simple CSV export from an AODB)
+- Map real ICAO aircraft type codes (e.g. `B738`, `A320`, `A388`) to internal categories (`narrow-body`, `wide-body`, `super-heavy`)
+- Handle missing or unknown aircraft types with a configurable fallback category
+- Validate schedule consistency (no duplicate flight IDs, times within simulation horizon)
 
-#### Step 3.2: Baseline Policies
-**Target Files:**
-* `src/adp/policies.py` (Create)
+### 6.2 Current Airport State Import
 
-**Architectural Actions:**
-* Implement `RandomPolicy` (valid random moves).
-* Implement `GreedyPolicy` (assign to first compatible gate, minimize immediate $c_{wait}$).
-* *Note: These are needed to explore the state space and generate the "Graph" for Phase 4.*
+Allow the system to start from a non-empty airport state rather than always from `t=0`.
 
----
+- Define an `AirportStateSnapshot` schema: for each gate, provide current aircraft type and estimated remaining service time (or free)
+- Build a loader that hydrates `_gate_available_time` from this snapshot
+- Validate that the snapshot is consistent with the airport topology config
 
-### Phase 4: Automatic Feature Creation (Spectral Methods)
+### 6.3 Delay Integration
 
-**Goal:** Convert the high-dimensional state space into low-dimensional basis functions $\phi(s)$ using Spectral Graph Theory (Proto-Value Functions).
+Incorporate known delays at ingestion time so the policy plans against actual expected arrival times.
 
-#### Step 4.1: State-Transition Graph Builder
-**Target Files:**
-* `src/representation/graph_builder.py` (Create)
-* `experiments/02_graph_construction.py` (Create)
-
-**Architectural Actions:**
-* Run `Simulator` $N$ times with `RandomPolicy`.
-* Collect all unique visited "Resource States" $(\mathbf{g}, \mathbf{q})$ (ignoring time $t$ to allow cycles/recurrence).
-* Build Adjacency Matrix $W$ where $W_{ij} = 1$ if transition $i \to j$ was observed.
-
-**Mathematical/OR Implementation:**
-* Graph $G = (V, E)$.
-* Nodes $V$ are unique configurations of resources.
-* Time-collapse: $S_t \to \tilde{S}$ to ensure the graph isn't a DAG (Directed Acyclic Graph).
-
-#### Step 4.2: Eigen-Decomposition (PVFs)
-**Target Files:**
-* `src/representation/spectral.py` (Create)
-* `experiments/03_pvf_computation.py` (Create)
-
-**Architectural Actions:**
-* Compute Graph Laplacian: $L = D - W$ (unnormalized) or $\mathcal{L} = I - D^{-1/2}WD^{-1/2}$ (normalized).
-* Perform SVD/Eigen-decomposition to find eigenvectors.
-* Store the top $k$ eigenvectors. These are your Basis Functions $\phi(s)$.
-
-**Mathematical/OR Implementation:**
-* Solving $L\mathbf{v} = \lambda\mathbf{v}$.
-* The eigenvectors capture the "geometry" of the state space (e.g., bottlenecks, clusters of similar states).
+- Accept a delay manifest: `{flight_id: delay_minutes}` alongside the schedule
+- Apply delays on top of scheduled arrival times before populating `_arrivals_map`
+- Allow partial delay information (only some flights have known delays; others use noise model defaults)
 
 ---
 
-### Phase 5: The ADP Solver
+## Phase 7: Online Inference Engine
 
-**Goal:** Learn the Value Function $V(s)$ using the basis functions created in Phase 4.
+**Goal:** Run the trained ADP policy against real input and emit a concrete gate assignment plan.
 
-#### Step 5.1: Linear Value Function Approximation
-**Target Files:**
-* `src/adp/value_function.py` (Create)
+### 7.1 Inference Mode
 
-**Architectural Actions:**
-* Class `LinearValueFunction`.
-* Stores weights vector $\theta$.
-* **Method `estimate(state)`:** Returns $\theta^T \cdot \phi(state)$.
-* **Crucial:** Need a mapping from a runtime state to its corresponding row index in the eigenvector matrix from Phase 4. (Nearest Neighbor or Exact Match).
+Separate training behaviour from inference behaviour in the policy.
 
-**Mathematical/OR Implementation:**
-* $V(s) \approx \sum_{i=1}^k \theta_i \phi_i(s)$
+- Add an `inference_mode` flag to `ADPPolicy` that sets `epsilon=0` and disables any weight updates
+- Load pre-trained `theta` weights and PVF basis functions from disk at startup
+- Expose a `plan(current_state, schedule_window)` method that returns a list of `(flight_id, gate_idx)` assignments
 
-#### Step 5.2: TD Learning Agent
-**Target Files:**
-* `src/adp/agent.py` (Create)
+### 7.2 Rolling Horizon Planning
 
-**Architectural Actions:**
-* Implement `TDLearningAgent`.
-* **Update Rule:** Standard TD(0) or Least Squares TD (LSTD).
-* Update $\theta$ based on the Bellman Error.
+Real operations use a rolling window, not a fixed horizon.
 
-**Mathematical/OR Implementation:**
-* $\delta_t = R_t + \gamma V(S_{t+1}) - V(S_t)$
-* $\theta \leftarrow \theta + \alpha \delta_t \phi(S_t)$
+- Define a `planning_horizon` (e.g. 120 minutes ahead) that limits how far into the schedule is considered
+- Re-run planning on a configurable interval (e.g. every 5 minutes, or on each new arrival)
+- Support incremental re-planning: flights already assigned are locked; only unassigned flights are re-optimised
 
-#### Step 5.3: Evaluation
-**Target Files:**
-* `experiments/04_adp_training.py` (Create)
+### 7.3 Assignment Output Format
 
-**Architectural Actions:**
-* Train the agent over $M$ episodes.
-* Compare cumulative reward of `TDLearningAgent` vs. `GreedyPolicy` on held-out test schedules.
+Define what the system returns.
+
+- Return assignments as a structured list: `[{flight_id, gate, estimated_start, estimated_end, confidence}]`
+- Flag assignments where the policy had to fall back to KNN (unseen state) so operators know which decisions are less certain
+- Include a short reason for each assignment (gate preference score, no compatible alternatives, etc.)
+
+---
+
+## Phase 8: Robustness & Production Hardening
+
+**Goal:** Make the system reliable when real data is messy.
+
+### 8.1 Graceful Constraint Handling
+
+- If no compatible gate exists for a flight (all occupied or incompatible), emit a `HOLD` assignment with estimated wait time rather than crashing
+- If an aircraft type is unknown, log a warning and assign using the nearest compatible category
+- Cap queue overflow rather than letting the reward diverge silently
+
+### 8.2 Re-Planning on New Information
+
+- Trigger re-planning automatically when a new delay update arrives that affects an unassigned flight
+- If a previously assigned gate becomes unavailable (e.g. maintenance), re-plan affected flights only
+
+### 8.3 Logging & Audit Trail
+
+- Log every assignment decision with: timestamp, flight, chosen gate, policy value estimate, alternatives considered
+- Persist logs to a file or database for post-hoc analysis and model improvement
+
+### 8.4 Model Versioning
+
+- Tag each saved `theta` with the scenario and training run that produced it
+- Support loading a specific model version at inference time
+- Provide a simple benchmark script to compare two model versions on a held-out schedule
+
+---
+
+## Phase 9: REST API Layer
+
+**Goal:** Expose the inference engine as a service that external systems (AODB, OPS displays, frontend) can call.
+
+### 9.1 Core Endpoints
+
+Build a REST API using FastAPI.
+
+- `POST /assignments` — accepts `{schedule, airport_state, delays}`, returns assignment plan
+- `GET /assignments/{job_id}` — retrieve result of an async planning job
+- `POST /replan` — trigger re-planning with updated delays, returns diff of changed assignments
+- `GET /status` — health check, loaded model version, last planning run timestamp
+
+### 9.2 Input/Output Schemas
+
+- Define Pydantic models for all request and response bodies
+- Validate aircraft types, gate indices, and time values on ingestion
+- Return structured errors with clear messages (unknown aircraft type, no feasible assignment, etc.)
+
+### 9.3 Async Planning
+
+Planning an episode takes non-trivial time at high traffic loads.
+
+- Offload planning to a background task (FastAPI `BackgroundTasks` or a task queue)
+- Return a `job_id` immediately; client polls `GET /assignments/{job_id}` for the result
+- Set a configurable timeout; return best partial plan if full planning exceeds it
+
+### 9.4 Authentication & Rate Limiting
+
+- API key authentication for all endpoints
+- Rate limiting per client to prevent runaway re-plan requests
+
+---
+
+## Phase 10: Frontend
+
+**Goal:** Provide an interactive interface for operations staff to view, override, and monitor gate assignments.
+
+### 10.1 Assignment Dashboard
+
+- Gantt chart view of the planning window: gates on the Y-axis, time on the X-axis, flights as coloured blocks
+- Colour-code by aircraft type and assignment confidence
+- Live-updating as new assignments are produced by the API
+
+### 10.2 Manual Override
+
+- Allow an operator to drag a flight to a different gate
+- On override, the system re-plans remaining unassigned flights respecting the manually set assignments
+- Show estimated downstream impact (queue length, blocked gates) before confirming an override
+
+### 10.3 Delay & Disruption View
+
+- Highlight flights with known delays
+- Show which assignments are affected by a new delay and what the system proposes to change
+
+### 10.4 Technical Notes
+
+- Thin client calling the Phase 9 API
+- Real-time updates via WebSocket or polling the `/assignments` endpoint
+- Framework: React or a lightweight alternative; keep the frontend stateless (all state lives in the API)

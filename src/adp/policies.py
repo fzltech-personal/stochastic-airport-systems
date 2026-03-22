@@ -114,44 +114,35 @@ class ADPPolicy:
         if np.random.random() < self.epsilon:
             return random.choice(valid_actions)
 
-        # 2. EXPLOITATION: Pick the action that maximizes the Bellman equation
+        # 2. EXPLOITATION: Pick the action that maximizes the Bellman equation.
+        # Short-circuit: if there is only one valid action there is nothing to compare.
+        if len(valid_actions) == 1:
+            return valid_actions[0]
+
+        # Simulate all actions in one call (shared gate-tick + queue work done once).
+        # Returns (resource_state, reward, done) tuples — no AirportState objects created.
+        simulations = env.simulate_actions_batch(state, valid_actions)
+
+        # Batch KNN over resource_states for all non-terminal next states (one call).
+        non_terminal = [(i, rs) for i, (rs, _, done) in enumerate(simulations) if not done]
+        phi_matrix = None
+        if non_terminal:
+            phi_matrix = self.extractor.extract_resource_states_batch(
+                [rs for _, rs in non_terminal]
+            )
+
         best_action = valid_actions[0]
         best_value = -float('inf')
+        phi_row = 0
 
-        for action in valid_actions:
-            # Lookahead using the lightweight forward model
-            # This model is not implemented in the provided environment, so we'll assume it exists
-            # For the purpose of this refactoring, we'll call a hypothetical simulate_action
-            # In a real scenario, this would be:
-            # expected_next_state, expected_reward, done = env.simulate_action(state, action)
-
-            # Since simulate_action is not available, we will mock its expected behavior
-            # This part of the logic is illustrative. The key change is the short-circuit above.
-            if action.is_noop:
-                # Simplified reward for waiting
-                expected_reward = env.reward_config.compute_reward(queue_length=len(state.runway_queue), assignment_made=False)
-                # Simplified next state for waiting
-                next_gates = tuple(max(0, g - 1) for g in state.gates)
-                expected_next_state = state.__class__(t=state.t + 1, gates=next_gates, runway_queue=state.runway_queue)
-                done = (state.t + 1) >= env.scenario.time.horizon
-            else:
-                # Simplified reward for assigning
-                expected_reward = env.reward_config.compute_reward(queue_length=len(state.runway_queue) - 1, assignment_made=True)
-                # Simplified next state for assigning
-                # This is a highly simplified model of what simulate_action would do
-                next_gates = list(state.gates)
-                next_gates[action.gate_idx] = 60 # Assume a fixed service time for illustration
-                next_gates = tuple(max(0, g - 1) for g in next_gates)
-                next_queue = state.runway_queue[1:]
-                expected_next_state = state.__class__(t=state.t + 1, gates=next_gates, runway_queue=next_queue)
-                done = (state.t + 1) >= env.scenario.time.horizon
-
-
+        for i, (action, (resource_state, expected_reward, done)) in enumerate(
+            zip(valid_actions, simulations)
+        ):
             if done:
                 action_value = expected_reward
             else:
-                phi_next = self.extractor.extract_features(expected_next_state)
-                action_value = expected_reward + self.gamma * self.vfa.predict(phi_next)
+                action_value = expected_reward + self.gamma * self.vfa.predict(phi_matrix[phi_row])
+                phi_row += 1
 
             if action_value > best_value:
                 best_value = action_value

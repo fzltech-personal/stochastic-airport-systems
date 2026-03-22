@@ -63,6 +63,21 @@ morning_rush_rewards:
   Q_max: 8
   rationale: "High penalty for overflow and wait, but moderate preference importance"
 
+high_load_rewards:
+  description: "Rewards tuned for high-utilisation scenarios (55+ flights/hr)"
+  c_wait: -1.5
+  c_overflow: -20.0
+  c_assign: 1.0
+  beta: 0.3
+  Q_max: 20
+  rationale: >
+    At 55/hr utilisation the queue regularly exceeds Q_max=8, causing c_overflow=-100
+    to fire on almost every step. This drowns the learning signal — the agent cannot
+    distinguish good from bad decisions. Q_max=20 and c_overflow=-20 keep the overflow
+    penalty as a meaningful signal for genuinely catastrophic backlog without saturating
+    every step. The assignment bonus and wait penalty remain unchanged so relative
+    incentives are preserved.
+
 # Context-specific recommendations
 
 operational_contexts:

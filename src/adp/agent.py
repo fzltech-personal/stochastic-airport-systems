@@ -11,15 +11,6 @@ class TD0Learner:
     """
 
     def __init__(self, vfa: LinearVFA, extractor: PVFFeatureExtractor, gamma: float, alpha: float) -> None:
-        """
-        Initialize the TD(0) learner.
-
-        Args:
-            vfa (LinearVFA): The linear value function approximator.
-            extractor (PVFFeatureExtractor): The PVF Feature Extractor.
-            gamma (float): Discount factor [0, 1].
-            alpha (float): Learning rate.
-        """
         self.vfa: LinearVFA = vfa
         self.extractor: PVFFeatureExtractor = extractor
         self.gamma: float = gamma
@@ -27,25 +18,36 @@ class TD0Learner:
 
     def learn_from_trajectory(self, trajectory: List[Tuple[Any, Any, float, Optional[Any]]]) -> None:
         """
-        Iterate through an episode's trajectory and perform TD(0) updates.
+        Perform TD(0) updates for an entire episode trajectory.
 
-        Args:
-            trajectory (List[Tuple]): A list of transitions, where each transition is a tuple 
-                                      of (state, action, reward, next_state). `next_state` 
-                                      can be None if the transition leads to a terminal state.
+        Feature extraction is batched into two KNN calls (one for all current
+        states, one for all non-terminal next states) instead of 2×T individual
+        calls, which is the dominant runtime cost.
         """
-        for state, action, reward, next_state in trajectory:
-            # Extract features for the current state
-            phi: np.ndarray = self.extractor.extract_features(state)
+        if not trajectory:
+            return
 
-            if next_state is None:
-                # Terminal state: TD Target is just the reward
-                target: float = reward
+        # Collect states for batch extraction
+        states = [s for s, _, _, _ in trajectory]
+        next_states_raw = [ns for _, _, _, ns in trajectory]
+
+        terminal_mask = [ns is None for ns in next_states_raw]
+        non_terminal_next = [ns for ns in next_states_raw if ns is not None]
+
+        # Two batch KNN calls instead of up to 2×T individual calls
+        phi_curr = self.extractor.extract_features_batch(states)
+        phi_next_nt = (
+            self.extractor.extract_features_batch(non_terminal_next)
+            if non_terminal_next
+            else np.zeros((0, self.extractor.num_features), dtype=np.float64)
+        )
+
+        # TD updates using pre-extracted features
+        nt_idx = 0
+        for i, (_, _, reward, _) in enumerate(trajectory):
+            if terminal_mask[i]:
+                target = reward
             else:
-                # Next state features and predicted value
-                next_phi: np.ndarray = self.extractor.extract_features(next_state)
-                # Calculate TD Target
-                target: float = reward + self.gamma * self.vfa.predict(next_phi)
-
-            # Perform standard semi-gradient TD update on the VFA
-            self.vfa.update(phi, target, self.alpha)
+                target = reward + self.gamma * self.vfa.predict(phi_next_nt[nt_idx])
+                nt_idx += 1
+            self.vfa.update(phi_curr[i], target, self.alpha)

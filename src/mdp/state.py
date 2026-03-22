@@ -20,13 +20,16 @@ class AirportState:
                Must be a tuple (not list/array) to ensure hashability.
         runway_queue: Tuple of flight IDs representing aircraft waiting for assignment.
                       Ordered by arrival time.
+        queue_composition: Tuple of integers counting how many of each aircraft type
+                           are currently in the queue.
     """
     t: int
     gates: Tuple[int, ...]
     runway_queue: Tuple[str, ...]
+    queue_composition: Tuple[int, ...] = ()
 
     @property
-    def resource_state(self) -> Tuple[Tuple[int, ...], Tuple[str, ...]]:
+    def resource_state(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         """
         Get the time-independent resource configuration.
         
@@ -34,9 +37,9 @@ class AirportState:
         independent of absolute clock time.
         
         Returns:
-            A tuple of (gates, runway_queue).
+            A tuple of (gates, queue_composition).
         """
-        return self.gates, self.runway_queue
+        return self.gates, self.queue_composition
 
     @property
     def num_waiting(self) -> int:

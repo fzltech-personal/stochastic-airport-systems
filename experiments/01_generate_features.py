@@ -69,7 +69,7 @@ def main(scenario_filename: str, force_rebuild: bool = False):
     graph_builder = StateGraph()
 
     # 3. Collect Trajectories
-    num_episodes = 50
+    num_episodes = 100
     print(f"Running {num_episodes} episodes for graph construction...")
     for _ in tqdm(range(num_episodes)):
         trajectory = simulator.run_episode()

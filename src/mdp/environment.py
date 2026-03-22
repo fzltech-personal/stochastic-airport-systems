@@ -44,10 +44,14 @@ class AirportEnvironment:
         
         # Performance Optimization: Pre-compute base service times for O(1) lookup
         self._base_service_times: Dict[str, float] = {
-            ac.name: ac.base_service_mean 
+            ac.name: ac.base_service_mean
             for ac in scenario.aircraft_types
         }
-        
+
+        # Shared RNG — created once, reused across step() and reset() to avoid
+        # the overhead of np.random.default_rng() on every call.
+        self._rng: np.random.Generator = np.random.default_rng()
+
         # Pre-process arrivals for O(1) access by time
         self._arrivals_map: Dict[int, List[ActiveFlight]] = defaultdict(list)
         self._init_arrivals_map()
@@ -61,23 +65,19 @@ class AirportEnvironment:
     def _init_arrivals_map(self):
         """Populate the arrivals map from the scenario schedule, applying stochastic noise."""
         flights = self.scenario.schedule.get_flights()
-        
-        # We need a random generator for sampling delays.
-        # Using a new generator without a fixed seed means it will be stochastic on every run.
-        rng = np.random.default_rng()
-        
+
         for sched_flight in flights:
             if sched_flight.direction == "arrival":
                 # Base scheduled time
                 arrival_time = sched_flight.scheduled_time
-                
+
                 # Apply noise from the scenario configuration (arrival noise)
                 if getattr(self.scenario, 'noise_models', None) and self.scenario.noise_models.arrival:
-                    delay_float = self.scenario.noise_models.arrival.sample(rng=rng, size=1)[0]
+                    delay_float = self.scenario.noise_models.arrival.sample(rng=self._rng, size=1)[0]
                     delay_minutes = int(round(delay_float))
                 elif getattr(self.scenario, 'noise_model', None):
                     # Fallback for old configs
-                    delay_float = self.scenario.noise_model.sample(rng=rng, size=1)[0]
+                    delay_float = self.scenario.noise_model.sample(rng=self._rng, size=1)[0]
                     delay_minutes = int(round(delay_float))
                 else:
                     delay_minutes = 0
@@ -102,12 +102,16 @@ class AirportEnvironment:
         """
         self.t = 0
         self.done = False
-        
+
         # Clear internal state
         self.active_flights.clear()
         self._current_queue.clear()
         self._gate_available_time.fill(0)
-        
+
+        # Re-sample stochastic arrivals so each episode sees different noise
+        self._arrivals_map.clear()
+        self._init_arrivals_map()
+
         # Process initial arrivals at t=0
         self._process_arrivals(0)
         
@@ -118,39 +122,33 @@ class AirportEnvironment:
         """
         Returns a list of valid actions for the given state, enforcing hard constraints.
         An action is valid if the gate is compatible and available.
+
+        Iterates the queue to find the first aircraft that has at least one compatible
+        free gate, bypassing blocked aircraft (e.g. cargo-heavy with all gates occupied).
+        This prevents FIFO head-of-queue blocking from freezing all subsequent assignments.
         """
-        # If nothing is in the queue, the only action is to wait.
         if not state.runway_queue:
             return [Action(flight_id=None, gate_idx=-1)]
 
-        flight_id = state.runway_queue[0]
-        flight = self.active_flights[flight_id]
-        
-        valid_actions = []
         num_gates = self.scenario.airport.num_gates
-        
-        try:
-            # We need the aircraft index to query compatibility efficiently
-            ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
-            
-            for gate_idx in range(num_gates):
-                # 1. HARD CONSTRAINT: Gate must be free at the current time.
-                if state.gates[gate_idx] == 0:
-                    # 2. COMPATIBILITY: Gate must be compatible with aircraft type
-                    if self.scenario.compatibility.is_compatible_idx(ac_idx, gate_idx):
-                        valid_actions.append(Action(flight_id=flight_id, gate_idx=gate_idx))
-                        
-        except KeyError:
-            # If the aircraft type somehow isn't in the config, it can't dock anywhere.
-            pass
 
-        # If no gates are available for this flight, the only option is to hold.
-        # This is represented by a NO_OP action. The simulation will advance,
-        # and the flight will remain in the queue, incurring a penalty.
-        if not valid_actions:
-            return [Action(flight_id=None, gate_idx=-1)]
-            
-        return valid_actions
+        for flight_id in state.runway_queue:
+            flight = self.active_flights[flight_id]
+            valid_actions = []
+            try:
+                ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
+                for gate_idx in range(num_gates):
+                    if state.gates[gate_idx] == 0:
+                        if self.scenario.compatibility.is_compatible_idx(ac_idx, gate_idx):
+                            valid_actions.append(Action(flight_id=flight_id, gate_idx=gate_idx))
+            except KeyError:
+                pass
+
+            if valid_actions:
+                return valid_actions
+
+        # No aircraft in the queue can be assigned right now — hold.
+        return [Action(flight_id=None, gate_idx=-1)]
 
     def step(self, action: Action) -> Tuple[AirportState, float, bool, Dict[str, Any]]:
         """
@@ -168,10 +166,10 @@ class AirportEnvironment:
             gate_idx = action.gate_idx
             
             # VALIDATION: Ensure action is valid
-            # 1. Flight is at the head of the queue
+            # 1. Flight is still in the queue (may be at any position)
             # 2. Gate is actually available
-            if self._current_queue and self._current_queue[0] == flight_id and self._gate_available_time[gate_idx] == 0:
-                self._current_queue.popleft()
+            if flight_id in self._current_queue and self._gate_available_time[gate_idx] == 0:
+                self._current_queue.remove(flight_id)
                 
                 flight = self.active_flights[flight_id]
                 flight.gate_assignment = gate_idx
@@ -181,13 +179,10 @@ class AirportEnvironment:
                 base_service = self._base_service_times[flight.aircraft_type]
                 
                 # Sample stochastic service time
-                rng = np.random.default_rng()
                 if getattr(self.scenario, 'noise_models', None) and self.scenario.noise_models.service:
-                    # Create a temporary noise model overriding the mean to be base_service
-                    # We assume distribution is normal as per the new structure
                     service_std = self.scenario.noise_models.service.params.get('std', 0)
                     if service_std > 0:
-                        sampled_service = rng.normal(loc=base_service, scale=service_std)
+                        sampled_service = self._rng.normal(loc=base_service, scale=service_std)
                     else:
                         sampled_service = base_service
                 else:
@@ -259,26 +254,17 @@ class AirportEnvironment:
         # 2. Apply action logic
         if not getattr(action, 'is_noop', True) and action.flight_id is not None:
             # If the action is valid, process the assignment
-            if next_queue and next_queue[0] == action.flight_id:
-                next_queue.pop(0)  # Remove the assigned flight from the queue
+            if action.flight_id in next_queue:
+                next_queue.remove(action.flight_id)
 
                 flight = self.active_flights[action.flight_id]
                 taxi_time = self.scenario.airport.get_taxiing_time(flight.runway, action.gate_idx)
                 base_service = self._base_service_times[flight.aircraft_type]
-                
-                # Sample stochastic service time
-                rng = np.random.default_rng()
-                if getattr(self.scenario, 'noise_models', None) and self.scenario.noise_models.service:
-                    service_std = self.scenario.noise_models.service.params.get('std', 0)
-                    if service_std > 0:
-                        sampled_service = rng.normal(loc=base_service, scale=service_std)
-                    else:
-                        sampled_service = base_service
-                else:
-                    sampled_service = base_service
-                
-                actual_service = max(15, int(round(sampled_service)))
-                total_service = actual_service + taxi_time
+
+                # Use deterministic expected service time for lookahead planning.
+                # Sampling here adds noise to Q-value estimates without improving accuracy —
+                # the VFA is already learning to approximate E[V(s')] over stochasticity.
+                total_service = max(15, int(round(base_service))) + taxi_time
 
                 # Occupy the gate
                 next_gates[action.gate_idx] = total_service
@@ -307,14 +293,126 @@ class AirportEnvironment:
         for f in new_flights:
             next_queue.append(f.flight_id)
 
+        # Before creating the next state, we need to calculate the expected queue composition
+        counts = [0] * len(self.scenario.compatibility.type_to_idx)
+        for flight_id in next_queue:
+            # We assume active_flights has been populated with these future arrivals during initialization
+            if flight_id in self.active_flights:
+                flight = self.active_flights[flight_id]
+                try:
+                    ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
+                    counts[ac_idx] += 1
+                except KeyError:
+                    pass
+
         # 6. Package back into an immutable state
         next_state = AirportState(
             t=next_t,
             gates=tuple(next_gates),
-            runway_queue=tuple(next_queue)
+            runway_queue=tuple(next_queue),
+            queue_composition=tuple(counts)
         )
 
         return next_state, reward, is_done
+
+    def simulate_actions_batch(self, state: AirportState, actions: List[Action]) -> List[Tuple]:
+        """
+        Compute (resource_state, reward, done) for every action from the same state.
+
+        All actions from a given state share the same gate tick, queue update,
+        future arrivals, and queue composition. This method precomputes those
+        shared components ONCE (using a vectorised numpy gate tick) and then
+        applies only the per-action gate delta, avoiding the O(90) list copy +
+        comprehension that simulate_action() repeats for each action.
+
+        Returns a list of (resource_state_tuple, reward, done) — no AirportState
+        objects are created, which removes the dataclass allocation overhead too.
+        """
+        next_t = state.t + 1
+        is_done = next_t >= self.scenario.time.horizon
+        n_types = len(self.scenario.compatibility.type_to_idx)
+
+        # Vectorised gate tick — O(90) with numpy, computed ONCE for all actions
+        base_gates = np.maximum(0, np.asarray(state.gates, dtype=np.int32) - 1)
+
+        # Future arrivals at next_t (shared across all actions)
+        future_flights = self._arrivals_map.get(next_t, [])
+
+        # --- NO_OP fast path (queue empty or no compatible gate available) ---
+        if actions[0].is_noop:
+            noop_queue = list(state.runway_queue) + [f.flight_id for f in future_flights]
+            counts = [0] * n_types
+            for fid in state.runway_queue:
+                f = self.active_flights.get(fid)
+                if f:
+                    try:
+                        counts[self.scenario.compatibility.type_to_idx[f.aircraft_type]] += 1
+                    except KeyError:
+                        pass
+            for f in future_flights:
+                try:
+                    counts[self.scenario.compatibility.type_to_idx[f.aircraft_type]] += 1
+                except KeyError:
+                    pass
+            reward = self.reward_config.compute_reward(
+                queue_length=len(noop_queue), assignment_made=False
+            )
+            return [((tuple(base_gates.tolist()), tuple(counts)), reward, is_done)]
+
+        # --- Assignment path: all actions assign the same flight to a gate ---
+        # The assigned flight may be anywhere in the queue (not necessarily position 0),
+        # so remove it by identity rather than by position.
+        assigned_flight_id = actions[0].flight_id
+        base_queue = tuple(fid for fid in state.runway_queue if fid != assigned_flight_id)
+        full_queue = list(base_queue) + [f.flight_id for f in future_flights]
+        queue_len = len(full_queue)
+
+        # Shared: queue composition (same flight leaves for every action)
+        counts = [0] * n_types
+        for fid in base_queue:
+            f = self.active_flights.get(fid)
+            if f:
+                try:
+                    counts[self.scenario.compatibility.type_to_idx[f.aircraft_type]] += 1
+                except KeyError:
+                    pass
+        for f in future_flights:
+            try:
+                counts[self.scenario.compatibility.type_to_idx[f.aircraft_type]] += 1
+            except KeyError:
+                pass
+        queue_composition = tuple(counts)
+
+        # Shared: assigned flight properties (same for every action)
+        head_flight = self.active_flights[assigned_flight_id]
+        base_service = max(15, int(round(self._base_service_times[head_flight.aircraft_type])))
+        ac_idx = self.scenario.compatibility.type_to_idx.get(head_flight.aircraft_type)
+
+        # Per-action delta: only the occupied gate and preference score change
+        results = []
+        for action in actions:
+            taxi_time = self.scenario.airport.get_taxiing_time(head_flight.runway, action.gate_idx)
+            total_service = base_service + taxi_time
+
+            # Single-element override on a numpy copy — much faster than list copy + comprehension
+            gate_arr = base_gates.copy()
+            gate_arr[action.gate_idx] = total_service - 1  # -1: one tick already applied above
+
+            preference_score = 0.0
+            if ac_idx is not None:
+                try:
+                    preference_score = self.scenario.compatibility.get_preference_idx(ac_idx, action.gate_idx)
+                except (KeyError, IndexError):
+                    pass
+
+            reward = self.reward_config.compute_reward(
+                queue_length=queue_len,
+                assignment_made=True,
+                preference_score=preference_score,
+            )
+            results.append(((tuple(gate_arr.tolist()), queue_composition), reward, is_done))
+
+        return results
 
     def _process_arrivals(self, time: int):
         """Helper to inject new arrivals into the system."""
@@ -326,8 +424,19 @@ class AirportEnvironment:
 
     def _get_state_snapshot(self) -> AirportState:
         """Create an immutable AirportState from current mutable internals."""
+        # Calculate queue composition vector
+        counts = [0] * len(self.scenario.compatibility.type_to_idx)
+        for flight_id in self._current_queue:
+            flight = self.active_flights[flight_id]
+            try:
+                ac_idx = self.scenario.compatibility.type_to_idx[flight.aircraft_type]
+                counts[ac_idx] += 1
+            except KeyError:
+                pass
+                
         return AirportState(
             t=self.t,
             gates=tuple(self._gate_available_time.tolist()),
-            runway_queue=tuple(self._current_queue)
+            runway_queue=tuple(self._current_queue),
+            queue_composition=tuple(counts)
         )

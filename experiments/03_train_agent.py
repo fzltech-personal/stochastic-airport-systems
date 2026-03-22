@@ -63,7 +63,7 @@ def main(scenario_filename: str, continue_training: bool = False):
     # 3. Initialize ADP Components
     extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path))
     vfa = LinearVFA(num_features=extractor.num_features)
-    learner = TD0Learner(vfa=vfa, extractor=extractor, gamma=0.99, alpha=0.01)
+    learner = TD0Learner(vfa=vfa, extractor=extractor, gamma=0.99, alpha=0.001)
     policy = ADPPolicy(vfa=vfa, extractor=extractor, epsilon=0.5, gamma=0.99)
     
     # 4. Checkpointing Logic
@@ -83,8 +83,8 @@ def main(scenario_filename: str, continue_training: bool = False):
             # Recalculate epsilon based on the number of completed episodes
             # This ensures the exploration rate continues its decay schedule
             initial_epsilon = 0.5
-            decay_rate = 0.95
-            policy.epsilon = max(0.01, initial_epsilon * (decay_rate ** start_episode))
+            decay_rate = 0.995
+            policy.epsilon = max(0.05, initial_epsilon * (decay_rate ** start_episode))
             print(f"Resuming from episode {start_episode}. New epsilon: {policy.epsilon:.4f}")
         else:
             print("No reward history found. Starting from scratch.")
@@ -94,15 +94,15 @@ def main(scenario_filename: str, continue_training: bool = False):
     simulator = Simulator(env, policy)
 
     # 6. Training Loop
-    num_episodes = 100
+    num_episodes = 1000
     print(f"Training ADP Agent on '{scenario_prefix}' from episode {start_episode} to {num_episodes}...")
     pbar = tqdm(range(start_episode, num_episodes), initial=start_episode, total=num_episodes)
 
     try:
-        for episode in pbar:
+        for _ in pbar:
             trajectory = simulator.run_episode()
             learner.learn_from_trajectory(trajectory)
-            policy.epsilon = max(0.01, policy.epsilon * 0.95)
+            policy.epsilon = max(0.05, policy.epsilon * 0.995)
 
             total_reward = sum(reward for _, _, reward, _ in trajectory)
             episode_rewards.append(total_reward)
@@ -122,7 +122,7 @@ def main(scenario_filename: str, continue_training: bool = False):
     plt.figure(figsize=(10, 5))
     plt.plot(episode_rewards, label="Total Reward per Episode", alpha=0.3, color='blue')
 
-    window = max(1, num_episodes // 10)
+    window = 10
     if len(episode_rewards) >= window:
         moving_avg = np.convolve(episode_rewards, np.ones(window) / window, mode='valid')
         plt.plot(range(window - 1, len(episode_rewards)), moving_avg, color='red', linewidth=2,

@@ -70,7 +70,7 @@ def main():
     parser.add_argument("--train", action="store_true", help="Run the training steps (Builds graph & learns weights).")
     parser.add_argument("-c", "--continue-training", action="store_true",
                         help="Continue training from existing checkpoint (Used with --train).")
-    parser.add_argument("--model", type=str, default=None, help="Specific trained model prefix to load.")
+    parser.add_argument("--model", type=str, default="master_training", help="Specific trained model prefix to load.")
 
     # Data args
     parser.add_argument("--seed", type=int, default=42, help="Random seed for generation tasks.")
