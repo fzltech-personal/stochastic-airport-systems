@@ -98,7 +98,7 @@ def main(scenario_filename: str, force_rebuild: bool = False):
     sub_adj = nx.to_scipy_sparse_array(G_sub, nodelist=sub_nodes, weight='weight', format='csr')
 
     # 5. Compute Basis Functions
-    num_features = min(10, G_sub.number_of_nodes() - 2)
+    num_features = min(20, G_sub.number_of_nodes() - 2)
     if num_features < 1:
         print("Graph too small to compute features. Exiting.")
         return

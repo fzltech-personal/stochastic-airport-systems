@@ -73,7 +73,11 @@ def main(scenario_filename: str, continue_training: bool = False):
         print("--- Attempting to continue training ---")
         if theta_path.exists():
             print(f"Loading learned weights from: {theta_path}")
-            vfa.theta = np.load(theta_path)
+            loaded_theta = np.load(theta_path)
+            if loaded_theta.shape != vfa.theta.shape:
+                print(f"WARNING: saved theta shape {loaded_theta.shape} != current {vfa.theta.shape}. Starting fresh.")
+            else:
+                vfa.theta = loaded_theta
         
         if rewards_path.exists():
             print(f"Loading reward history from: {rewards_path}")

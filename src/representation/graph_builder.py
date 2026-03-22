@@ -41,6 +41,9 @@ class StateGraph:
             trajectory: A list of (state, action, reward, next_state) tuples.
         """
         for state, action, reward, next_state in trajectory:
+            # Skip terminal transitions (next_state is None for last step)
+            if next_state is None:
+                continue
             # Extract time-independent resource configuration
             # node format: ((gate_vector), (queue_tuple))
             u = state.resource_state

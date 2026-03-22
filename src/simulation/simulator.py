@@ -55,8 +55,9 @@ class Simulator:
             # 2. Step Environment
             next_state, reward, done, info = self.env.step(action)
             
-            # 3. Record Experience (including S_{t+1})
-            trajectory.append((state, action, reward, next_state))
+            # 3. Record Experience (S_t, A_t, R_{t+1}, S_{t+1} or None if terminal)
+            # Store None for terminal next_state so TD learner doesn't bootstrap past end.
+            trajectory.append((state, action, reward, None if done else next_state))
             
             # 4. Advance State
             state = next_state

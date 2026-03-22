@@ -7,7 +7,20 @@ from src.adp.value_function import LinearVFA
 
 class TD0Learner:
     """
-    TD(0) Learning algorithm orchestrator for an episode trajectory.
+    Monte Carlo value learner for episodic airport gate assignment.
+
+    Uses actual discounted returns G_t as learning targets rather than
+    bootstrapped TD(0) targets (r + gamma * V(s')).
+
+    Why MC over forward TD(0):
+      - Episodes are 720 steps long with gamma=0.99.
+      - With forward TD(0), each target = r_t + gamma * V(s_{t+1}) where V ≈ 0
+        initially. All targets collapse to the 1-step reward (~-4.6), so the VFA
+        learns to predict -4.6 everywhere — useless for distinguishing good vs bad
+        gate assignments that affect the next 100+ steps.
+      - With MC returns, G_t captures the full discounted future from step t,
+        so the VFA learns real value differences between states in ONE episode
+        instead of needing T episodes of backward credit propagation.
     """
 
     def __init__(self, vfa: LinearVFA, extractor: PVFFeatureExtractor, gamma: float, alpha: float) -> None:
@@ -18,36 +31,30 @@ class TD0Learner:
 
     def learn_from_trajectory(self, trajectory: List[Tuple[Any, Any, float, Optional[Any]]]) -> None:
         """
-        Perform TD(0) updates for an entire episode trajectory.
+        Update VFA using Monte Carlo returns for each visited state.
 
-        Feature extraction is batched into two KNN calls (one for all current
-        states, one for all non-terminal next states) instead of 2×T individual
-        calls, which is the dominant runtime cost.
+        Computes G_t = r_t + gamma*r_{t+1} + gamma^2*r_{t+2} + ... backward
+        in one pass, then applies semi-gradient updates.
+        Feature extraction is batched into one KNN call for the entire trajectory.
         """
         if not trajectory:
             return
 
-        # Collect states for batch extraction
+        T = len(trajectory)
+
+        # Compute actual discounted returns backward in one pass.
+        # G[T-1] = r_{T-1}, G[t] = r_t + gamma * G[t+1]
+        returns = np.empty(T, dtype=np.float64)
+        G = 0.0
+        for t in range(T - 1, -1, -1):
+            _, _, reward, _ = trajectory[t]
+            G = reward + self.gamma * G
+            returns[t] = G
+
+        # Single batch KNN call for all current states
         states = [s for s, _, _, _ in trajectory]
-        next_states_raw = [ns for _, _, _, ns in trajectory]
-
-        terminal_mask = [ns is None for ns in next_states_raw]
-        non_terminal_next = [ns for ns in next_states_raw if ns is not None]
-
-        # Two batch KNN calls instead of up to 2×T individual calls
         phi_curr = self.extractor.extract_features_batch(states)
-        phi_next_nt = (
-            self.extractor.extract_features_batch(non_terminal_next)
-            if non_terminal_next
-            else np.zeros((0, self.extractor.num_features), dtype=np.float64)
-        )
 
-        # TD updates using pre-extracted features
-        nt_idx = 0
-        for i, (_, _, reward, _) in enumerate(trajectory):
-            if terminal_mask[i]:
-                target = reward
-            else:
-                target = reward + self.gamma * self.vfa.predict(phi_next_nt[nt_idx])
-                nt_idx += 1
-            self.vfa.update(phi_curr[i], target, self.alpha)
+        # Semi-gradient MC update: theta += alpha * (G_t - V(s_t)) * phi(s_t)
+        for i in range(T):
+            self.vfa.update(phi_curr[i], returns[i], self.alpha)

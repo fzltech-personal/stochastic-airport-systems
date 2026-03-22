@@ -17,6 +17,15 @@ class PVFFeatureExtractor:
         self._basis_matrix: np.ndarray = np.load(basis_matrix_path)
         self.num_features: int = self._basis_matrix.shape[1]
 
+        # Normalize each row to unit L2 norm.
+        # PVF eigenvectors are column-normalized (||col||=1), so row norms scale as
+        # sqrt(k/N) where k=num_features, N=num_states — typically ~0.013 for our graphs.
+        # Without normalization, effective alpha = alpha * ||phi||^2 ~ 1e-7: the VFA
+        # cannot learn anything in a reasonable number of episodes.
+        row_norms = np.linalg.norm(self._basis_matrix, axis=1, keepdims=True)
+        row_norms = np.maximum(row_norms, 1e-12)
+        self._basis_matrix = self._basis_matrix / row_norms
+
         with open(state_mapping_path, "rb") as f:
             self.state_list: list = pickle.load(f)
 
