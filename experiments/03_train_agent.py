@@ -2,7 +2,10 @@
 Experiment: Train the ADP Agent using TD(lambda) with eligibility traces.
 """
 import sys
+import csv
+import time
 from pathlib import Path
+from datetime import datetime
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -107,6 +110,18 @@ def main(scenario_filename: str, continue_training: bool = False):
         if eval_path.exists():
             eval_history = np.load(eval_path, allow_pickle=True).tolist()
 
+    # Open a new timestamped log file for this training run.
+    # Each --continue starts a fresh file but resumes from start_episode,
+    # so the episode column always reflects the true absolute episode number.
+    log_dir = ProjectPaths.get_root() / "experiments/results/training_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%d-%m-%Y_%H-%M")
+    log_path = log_dir / f"{timestamp}_{scenario_prefix}_training_log.csv"
+    log_file = open(log_path, "w", newline="")
+    log_writer = csv.writer(log_file)
+    log_writer.writerow(["episode", "duration_s", "reward", "moving_avg_10", "epsilon"])
+    print(f"Training log: {log_path}")
+
     # 5. Setup Environment and Simulator
     env = AirportEnvironment(scenario)
     eval_env = AirportEnvironment(scenario)
@@ -143,6 +158,7 @@ def main(scenario_filename: str, continue_training: bool = False):
 
     try:
         for ep_idx in pbar:
+            ep_start = time.perf_counter()
             trajectory = simulator.run_episode()
 
             # Update running reward statistics and build normalized trajectory
@@ -156,10 +172,21 @@ def main(scenario_filename: str, continue_training: bool = False):
 
             total_reward = sum(r for _, _, r, _ in trajectory)
             episode_rewards.append(total_reward)
+            duration = time.perf_counter() - ep_start
+
+            window_rewards = episode_rewards[-10:]
+            moving_avg = sum(window_rewards) / len(window_rewards)
+
+            # Absolute episode number (accounts for --continue offset)
+            abs_ep = start_episode + len(episode_rewards)
+            log_writer.writerow([abs_ep, f"{duration:.3f}", f"{total_reward:.1f}",
+                                  f"{moving_avg:.1f}", f"{policy.epsilon:.4f}"])
+            log_file.flush()
 
             pbar.set_postfix({
                 "Reward": f"{total_reward:.0f}",
                 "Eps": f"{policy.epsilon:.3f}",
+                "s/ep": f"{duration:.1f}",
             })
 
             # Periodic evaluation checkpoint (epsilon=0, clean signal)
@@ -175,6 +202,8 @@ def main(scenario_filename: str, continue_training: bool = False):
 
     except KeyboardInterrupt:
         print("\nTraining interrupted. Saving and plotting...")
+    finally:
+        log_file.close()
 
     # 7. Plot: training curve + eval overlay
     fig, ax = plt.subplots(figsize=(12, 5))
