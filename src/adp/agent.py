@@ -5,56 +5,93 @@ import numpy as np
 from src.adp.features import PVFFeatureExtractor
 from src.adp.value_function import LinearVFA
 
-class TD0Learner:
+
+class TDLambdaLearner:
     """
-    Monte Carlo value learner for episodic airport gate assignment.
+    TD(lambda) learner with eligibility traces for episodic gate-assignment tasks.
 
-    Uses actual discounted returns G_t as learning targets rather than
-    bootstrapped TD(0) targets (r + gamma * V(s')).
+    Generalises both TD(0) (lambda=0) and Monte Carlo (lambda=1):
 
-    Why MC over forward TD(0):
-      - Episodes are 720 steps long with gamma=0.99.
-      - With forward TD(0), each target = r_t + gamma * V(s_{t+1}) where V ≈ 0
-        initially. All targets collapse to the 1-step reward (~-4.6), so the VFA
-        learns to predict -4.6 everywhere — useless for distinguishing good vs bad
-        gate assignments that affect the next 100+ steps.
-      - With MC returns, G_t captures the full discounted future from step t,
-        so the VFA learns real value differences between states in ONE episode
-        instead of needing T episodes of backward credit propagation.
+      lambda=0   : one-step bootstrapping — low variance, high bias, slow
+                   credit propagation (failed for us: ~6000 episodes to halve error)
+      lambda=1   : full MC returns — unbiased but noisy over 720-step episodes;
+                   SNR of the improvement signal was ~0.06 vs the noise floor
+      lambda=0.9 : effective credit window ~30 steps (half-life = 6 steps with
+                   gamma*lambda=0.891), much lower variance than MC while still
+                   propagating value far enough to learn gate-quality differences
+
+    Algorithm (backward view, accumulating traces):
+      e ← 0
+      for t = 0..T-1:
+          e ← gamma * lambda * e + phi(s_t)        # accumulate trace
+          delta ← r_t + gamma * V(s_{t+1}) - V(s_t)  # TD error
+          theta ← theta + alpha * delta * e         # update with trace
+
+    Feature extraction is batched into two KNN calls (current + next states)
+    for the entire trajectory, then updates are applied sequentially with the
+    live theta so each step's V(s') reflects the latest weights.
     """
 
-    def __init__(self, vfa: LinearVFA, extractor: PVFFeatureExtractor, gamma: float, alpha: float) -> None:
-        self.vfa: LinearVFA = vfa
-        self.extractor: PVFFeatureExtractor = extractor
-        self.gamma: float = gamma
-        self.alpha: float = alpha
+    def __init__(
+        self,
+        vfa: LinearVFA,
+        extractor: PVFFeatureExtractor,
+        gamma: float,
+        alpha: float,
+        lambda_: float = 0.9,
+    ) -> None:
+        self.vfa = vfa
+        self.extractor = extractor
+        self.gamma = gamma
+        self.alpha = alpha
+        self.lambda_ = lambda_
 
-    def learn_from_trajectory(self, trajectory: List[Tuple[Any, Any, float, Optional[Any]]]) -> None:
+    def learn_from_trajectory(
+        self, trajectory: List[Tuple[Any, Any, float, Optional[Any]]]
+    ) -> None:
         """
-        Update VFA using Monte Carlo returns for each visited state.
+        Update VFA using TD(lambda) with eligibility traces.
 
-        Computes G_t = r_t + gamma*r_{t+1} + gamma^2*r_{t+2} + ... backward
-        in one pass, then applies semi-gradient updates.
-        Feature extraction is batched into one KNN call for the entire trajectory.
+        Feature extraction is batched; updates are sequential so V(s') in the
+        TD error always uses the current (updated) theta.
         """
         if not trajectory:
             return
 
         T = len(trajectory)
 
-        # Compute actual discounted returns backward in one pass.
-        # G[T-1] = r_{T-1}, G[t] = r_t + gamma * G[t+1]
-        returns = np.empty(T, dtype=np.float64)
-        G = 0.0
-        for t in range(T - 1, -1, -1):
-            _, _, reward, _ = trajectory[t]
-            G = reward + self.gamma * G
-            returns[t] = G
-
-        # Single batch KNN call for all current states
+        # ── Batch feature extraction (two KNN calls total) ──────────────────
         states = [s for s, _, _, _ in trajectory]
+        next_states_raw = [ns for _, _, _, ns in trajectory]
+
         phi_curr = self.extractor.extract_features_batch(states)
 
-        # Semi-gradient MC update: theta += alpha * (G_t - V(s_t)) * phi(s_t)
-        for i in range(T):
-            self.vfa.update(phi_curr[i], returns[i], self.alpha)
+        terminal_mask = [ns is None for ns in next_states_raw]
+        non_terminal_next = [ns for ns in next_states_raw if ns is not None]
+        phi_next_nt = (
+            self.extractor.extract_features_batch(non_terminal_next)
+            if non_terminal_next
+            else np.zeros((0, self.extractor.num_features), dtype=np.float64)
+        )
+
+        # ── Forward pass with eligibility traces ────────────────────────────
+        decay = self.gamma * self.lambda_
+        e = np.zeros(self.extractor.num_features, dtype=np.float64)
+        nt_idx = 0
+
+        for t in range(T):
+            _, _, reward, _ = trajectory[t]
+
+            # Accumulate eligibility trace
+            e = decay * e + phi_curr[t]
+
+            # TD error with current theta (live V values)
+            v_curr = self.vfa.predict(phi_curr[t])
+            if terminal_mask[t]:
+                v_next = 0.0
+            else:
+                v_next = self.vfa.predict(phi_next_nt[nt_idx])
+                nt_idx += 1
+
+            delta = reward + self.gamma * v_next - v_curr
+            self.vfa.theta += self.alpha * delta * e
