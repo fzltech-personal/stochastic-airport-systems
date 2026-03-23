@@ -36,7 +36,7 @@ def run_eval(env, policy, n_episodes: int = 10, epsilon_override: float = 0.0) -
     return rewards
 
 
-def main(scenario_filename: str, continue_training: bool = False):
+def main(scenario_filename: str, continue_training: bool = False, extra_epochs: int = 0):
     # 1. Load configuration and generate schedule
     config_path = ProjectPaths.get_configs_dir() / f"scenarios/{scenario_filename}"
     scenario_prefix = config_path.stem
@@ -125,6 +125,14 @@ def main(scenario_filename: str, continue_training: bool = False):
         if eval_path.exists():
             eval_history = np.load(eval_path, allow_pickle=True).tolist()
 
+        # When continuing LSTD training, reset the accumulated A/b matrices so
+        # the new run re-estimates the fixed point from fresh trajectories at
+        # the current (lower) epsilon, rather than mixing in stale exploratory
+        # data from the previous run. vfa.theta is kept as the warm start.
+        if isinstance(learner, LSTDLearner):
+            learner.reset_matrices()
+            print("LSTD matrices reset — theta preserved, A/b start fresh.")
+
     # Open a new timestamped log file for this training run.
     # Each --continue starts a fresh file but resumes from start_episode,
     # so the episode column always reflects the true absolute episode number.
@@ -163,7 +171,8 @@ def main(scenario_filename: str, continue_training: bool = False):
         return (r - _rn_mean) / (std + 1e-8)
 
     # 6. Training Loop
-    num_episodes = 1000
+    base_episodes = 1000
+    num_episodes = start_episode + extra_epochs if extra_epochs > 0 else max(base_episodes, start_episode + 1)
     eval_interval = 50   # run evaluation every N training episodes
     eval_n = 10          # episodes per evaluation checkpoint
 
@@ -274,16 +283,11 @@ def main(scenario_filename: str, continue_training: bool = False):
 
 
 if __name__ == "__main__":
-    scenario_arg = "morning_rush.yaml"
-    continue_flag = False
-
-    if len(sys.argv) > 1:
-        if '-c' in sys.argv or '--continue' in sys.argv:
-            continue_flag = True
-            if '-c' in sys.argv: sys.argv.remove('-c')
-            if '--continue' in sys.argv: sys.argv.remove('--continue')
-
-        if len(sys.argv) > 1:
-            scenario_arg = sys.argv[1]
-
-    main(scenario_arg, continue_training=continue_flag)
+    import argparse as _argparse
+    _parser = _argparse.ArgumentParser()
+    _parser.add_argument("scenario", nargs="?", default="morning_rush.yaml")
+    _parser.add_argument("-c", "--continue-training", action="store_true")
+    _parser.add_argument("--extra-epochs", type=int, default=0,
+                         help="Train for this many additional episodes beyond the current checkpoint.")
+    _args = _parser.parse_args()
+    main(_args.scenario, continue_training=_args.continue_training, extra_epochs=_args.extra_epochs)

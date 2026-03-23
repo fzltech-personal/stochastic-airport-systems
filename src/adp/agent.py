@@ -220,3 +220,16 @@ class LSTDLearner(BaseLearner):
         except np.linalg.LinAlgError:
             # Fallback to least-squares if the system is still ill-conditioned
             self.vfa.theta, _, _, _ = np.linalg.lstsq(A_reg, self._b, rcond=None)
+
+    def reset_matrices(self) -> None:
+        """
+        Zero the accumulated A and b matrices without touching vfa.theta.
+
+        Call this when resuming training from a checkpoint so that the continued
+        run re-estimates the fixed-point purely from new trajectories (collected
+        at the current, lower epsilon) rather than inheriting a mixture of
+        exploratory and near-greedy data from the previous run.
+        """
+        k = self.extractor.num_features
+        self._A = np.zeros((k, k), dtype=np.float64)
+        self._b = np.zeros(k, dtype=np.float64)

@@ -70,6 +70,8 @@ def main():
     parser.add_argument("--train", action="store_true", help="Run the training steps (Builds graph & learns weights).")
     parser.add_argument("-c", "--continue-training", action="store_true",
                         help="Continue training from existing checkpoint (Used with --train).")
+    parser.add_argument("--extra-epochs", type=int, default=0,
+                        help="Train for this many additional episodes beyond the current checkpoint (implies -c, used with --train).")
     parser.add_argument("--model", type=str, default="master_training", help="Specific trained model prefix to load.")
 
     # Data args
@@ -109,6 +111,8 @@ def main():
             cmd.append("--train")
             if args.continue_training:
                 cmd.append("-c")
+            if args.extra_epochs > 0:
+                cmd.extend(["--extra-epochs", str(args.extra_epochs)])
 
         # If a model is specified, use it.
         if args.model:

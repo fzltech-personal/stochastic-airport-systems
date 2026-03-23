@@ -41,6 +41,8 @@ def main():
     parser.add_argument("--train", action="store_true", help="Include this flag to run training steps (01, 02, 03)")
     parser.add_argument("-c", "--continue-training", action="store_true",
                         help="Continue training from existing checkpoint")
+    parser.add_argument("--extra-epochs", type=int, default=0,
+                        help="Train for this many additional episodes beyond the current checkpoint (implies -c).")
     parser.add_argument("--model", type=str, default=None,
                         help="The prefix of the trained model to load. Defaults to the scenario name.")
 
@@ -77,8 +79,11 @@ def main():
             script_path = experiments_dir / step
             if script_path.exists():
                 args_list = [scenario_filename]
-                if step == "03_train_agent.py" and args.continue_training:
-                    args_list.append("-c")
+                if step == "03_train_agent.py":
+                    if args.continue_training or args.extra_epochs > 0:
+                        args_list.append("-c")
+                    if args.extra_epochs > 0:
+                        args_list.extend(["--extra-epochs", str(args.extra_epochs)])
                 # Training scripts just need the scenario name to generate the artifacts
                 run_script(script_path, args_list)
             else:
