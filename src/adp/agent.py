@@ -124,8 +124,12 @@ class LSTDLearner(BaseLearner):
     linear VFA this is the exact fixed-point solution — no learning-rate
     tuning required, and convergence is typically 10-100x faster in episodes.
 
-    Statistics never reset: each new episode refines the existing estimate,
-    so the solve after episode N uses all N episodes of data.
+    A forgetting factor (default 0.99) is applied to A and b at the start of
+    each episode: A *= f, b *= f.  This exponentially down-weights old data so
+    that the fixed point tracks the current (decaying-epsilon) policy rather
+    than a mixture of all past behaviour.  It also prevents the warm-start theta
+    loaded from a checkpoint from being overwritten by a single episode's data
+    after the matrices are reset on --continue.
 
     With lambda=0 (default):
         A  +=  phi(s_t) * [phi(s_t) - gamma * phi(s_{t+1})]^T
@@ -140,11 +144,12 @@ class LSTDLearner(BaseLearner):
     A invertible in the early episodes when it is rank-deficient.
 
     Args:
-        vfa:       LinearVFA whose theta will be updated after each episode.
-        extractor: PVFFeatureExtractor used to map states to feature vectors.
-        gamma:     Discount factor.
-        lambda_:   Eligibility-trace decay (0 = pure LSTD, 1 = MC-LSTD).
-        reg:       Ridge regularization added to A before solving (default 1e-4).
+        vfa:               LinearVFA whose theta will be updated after each episode.
+        extractor:         PVFFeatureExtractor used to map states to feature vectors.
+        gamma:             Discount factor.
+        lambda_:           Eligibility-trace decay (0 = pure LSTD, 1 = MC-LSTD).
+        reg:               Ridge regularization added to A before solving (default 1e-4).
+        forgetting_factor: Exponential decay applied to A and b each episode (default 0.99).
     """
 
     def __init__(
@@ -154,12 +159,14 @@ class LSTDLearner(BaseLearner):
         gamma: float,
         lambda_: float = 0.0,
         reg: float = 1e-4,
+        forgetting_factor: float = 0.99,
     ) -> None:
         self.vfa = vfa
         self.extractor = extractor
         self.gamma = gamma
         self.lambda_ = lambda_
         self.reg = reg
+        self._forgetting_factor = forgetting_factor
 
         k = extractor.num_features
         self._A = np.zeros((k, k), dtype=np.float64)
@@ -177,6 +184,15 @@ class LSTDLearner(BaseLearner):
         """
         if not trajectory:
             return
+
+        # ── Apply forgetting factor before accumulating new data ─────────────
+        # Down-weights old statistics so the fixed point tracks the current
+        # policy rather than a mixture of all past behaviour.  Also prevents
+        # a warm-start theta from being overwritten after the very first episode
+        # when matrices are reset on --continue (A/b start near-zero; after one
+        # episode of forgetting the solve still reflects mostly the loaded theta).
+        self._A *= self._forgetting_factor
+        self._b *= self._forgetting_factor
 
         # ── Batch feature extraction ─────────────────────────────────────────
         states = [s for s, _, _, _ in trajectory]

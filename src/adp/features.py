@@ -1,5 +1,6 @@
 import logging
 import pickle
+from collections import OrderedDict
 from typing import Dict, Tuple, Any, List, Optional
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
@@ -40,11 +41,14 @@ class PVFFeatureExtractor:
         self.knn = NearestNeighbors(n_neighbors=1, metric='manhattan', n_jobs=1)
         self.knn.fit(state_matrix)
 
-        # Bounded cache for KNN-approximated states.
+        # LRU cache for KNN-approximated states.
         # Stochastic service times make resource_states nearly unique per episode.
-        # Without a cap, this dict reaches 1M+ entries (~900 MB) by ep 200 and
+        # Without a bound, this dict reaches 1M+ entries (~900 MB) by ep 200 and
         # causes main-memory cache thrashing on every lookup.
-        self._cache: Dict[Tuple, np.ndarray] = {}
+        # OrderedDict with move_to_end/popitem provides O(1) LRU eviction so that
+        # as epsilon decays the cache keeps the states the current policy actually
+        # visits rather than old high-epsilon exploratory states.
+        self._cache: OrderedDict[Tuple, np.ndarray] = OrderedDict()
         self._cache_maxsize: int = 50_000
         self.seen_count = 0
         self.unseen_count = 0
@@ -93,6 +97,7 @@ class PVFFeatureExtractor:
             cached = self._cache.get(cache_key)
             if cached is not None:
                 self.seen_count += 1
+                self._cache.move_to_end(cache_key)   # mark as recently used
                 result[i] = cached
                 continue
 
@@ -106,14 +111,15 @@ class PVFFeatureExtractor:
             for (i, resource_state, cache_key), nearest_idx in zip(miss_indices, indices[:, 0]):
                 features = self._basis_matrix[nearest_idx]
                 result[i] = features
-                # Cap the cache to prevent unbounded memory growth.
-                # Stochastic service times produce near-unique resource_states every episode;
-                # without a cap both _cache and _state_to_idx reach 1M+ entries (~2 GB) by
-                # ep 200, causing severe CPU cache thrashing on every lookup.
-                # _state_to_idx is intentionally NOT updated here: its keys are large nested
-                # tuples (~1.1 KB each) and the shortcut is never reused for stochastic states.
-                if len(self._cache) < self._cache_maxsize:
-                    self._cache[cache_key] = features
+                # LRU eviction: discard the least-recently-used entry before inserting
+                # a new one so the cache stays bounded at _cache_maxsize entries.
+                # This keeps the states the current (decaying-epsilon) policy visits,
+                # displacing old high-epsilon exploratory states that are never reused.
+                # _state_to_idx is intentionally NOT updated here: its keys are large
+                # nested tuples (~1.1 KB each) and are never reused for stochastic states.
+                if len(self._cache) >= self._cache_maxsize:
+                    self._cache.popitem(last=False)   # evict LRU entry
+                self._cache[cache_key] = features
 
         return result
 
