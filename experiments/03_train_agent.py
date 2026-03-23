@@ -4,6 +4,7 @@ Experiment: Train the ADP Agent using TD(lambda) with eligibility traces.
 import sys
 import csv
 import time
+from typing import Optional
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -142,7 +143,7 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
     log_path = log_dir / f"{timestamp}_{scenario_prefix}_training_log.csv"
     log_file = open(log_path, "w", newline="")
     log_writer = csv.writer(log_file)
-    log_writer.writerow(["episode", "duration_s", "reward", "moving_avg_10", "epsilon"])
+    log_writer.writerow(["episode", "duration_s", "reward", "moving_avg_10", "ema_reward", "epsilon"])
     print(f"Training log: {log_path}")
 
     # 5. Setup Environment and Simulator
@@ -170,11 +171,26 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
         std = (_rn_M2 / (_rn_count - 1)) ** 0.5
         return (r - _rn_mean) / (std + 1e-8)
 
+    # EMA state — alpha=0.05 gives a ~20-episode effective window, smoothing
+    # enough to see trends without lagging too far behind structural shifts.
+    _ema_alpha = 0.05
+
+    def _compute_ema(rewards: list, alpha: float) -> list:
+        result, val = [], None
+        for r in rewards:
+            val = r if val is None else alpha * r + (1 - alpha) * val
+            result.append(val)
+        return result
+
+    # Seed EMA from loaded history so the continued curve stays continuous.
+    ema_rewards: list = _compute_ema(episode_rewards, _ema_alpha)
+    _ema_reward: Optional[float] = ema_rewards[-1] if ema_rewards else None
+
     # 6. Training Loop
     base_episodes = 1000
     num_episodes = start_episode + extra_epochs if extra_epochs > 0 else max(base_episodes, start_episode + 1)
     eval_interval = 50   # run evaluation every N training episodes
-    eval_n = 10          # episodes per evaluation checkpoint
+    eval_n = 30          # episodes per evaluation checkpoint
 
     print(f"Training ADP Agent on '{scenario_prefix}' from episode {start_episode} to {num_episodes}...")
     print(f"  learner={LEARNER_TYPE}, gamma=0.99, eval every {eval_interval} episodes")
@@ -201,10 +217,15 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
             window_rewards = episode_rewards[-10:]
             moving_avg = sum(window_rewards) / len(window_rewards)
 
+            _ema_reward = total_reward if _ema_reward is None else (
+                _ema_alpha * total_reward + (1 - _ema_alpha) * _ema_reward
+            )
+            ema_rewards.append(_ema_reward)
+
             # Absolute episode number (accounts for --continue offset)
             abs_ep = start_episode + len(episode_rewards)
             log_writer.writerow([abs_ep, f"{duration:.3f}", f"{total_reward:.1f}",
-                                  f"{moving_avg:.1f}", f"{policy.epsilon:.4f}"])
+                                  f"{moving_avg:.1f}", f"{_ema_reward:.1f}", f"{policy.epsilon:.4f}"])
             log_file.flush()
 
             pbar.set_postfix({
@@ -238,6 +259,9 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
         ma = np.convolve(episode_rewards, np.ones(window) / window, mode='valid')
         ax.plot(range(window - 1, len(episode_rewards)), ma, color='blue', linewidth=1.5,
                 label=f"{window}-ep moving avg")
+
+    if ema_rewards:
+        ax.plot(ema_rewards, color='green', linewidth=1.5, label=f"EMA (α={_ema_alpha})")
 
     if eval_history:
         eval_eps = [e for e, _ in eval_history]
