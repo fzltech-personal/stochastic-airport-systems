@@ -90,7 +90,7 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
     if LEARNER_TYPE == "td_lambda":
         learner = TDLambdaLearner(vfa=vfa, extractor=extractor, gamma=0.99, alpha=0.001, lambda_=0.9)
     elif LEARNER_TYPE == "lstd":
-        learner = LSTDLearner(vfa=vfa, extractor=extractor, gamma=0.99, lambda_=0.0, reg=1e-4)
+        learner = LSTDLearner(vfa=vfa, extractor=extractor, gamma=0.99, lambda_=0.9, reg=1e-4)
     else:
         raise ValueError(f"Unknown LEARNER_TYPE: {LEARNER_TYPE!r}")
 
@@ -151,26 +151,6 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
     eval_env = AirportEnvironment(scenario)
     simulator = Simulator(env, policy)
 
-    # Per-step running reward statistics for normalization
-    # Maintained as (count, mean, M2) for Welford online algorithm
-    _rn_count = 0
-    _rn_mean = 0.0
-    _rn_M2 = 0.0
-
-    def update_reward_stats(r: float):
-        nonlocal _rn_count, _rn_mean, _rn_M2
-        _rn_count += 1
-        delta = r - _rn_mean
-        _rn_mean += delta / _rn_count
-        _rn_M2 += delta * (r - _rn_mean)
-
-    def normalized_reward(r: float) -> float:
-        """Normalize reward to zero mean, unit std using running statistics."""
-        if _rn_count < 2:
-            return r
-        std = (_rn_M2 / (_rn_count - 1)) ** 0.5
-        return (r - _rn_mean) / (std + 1e-8)
-
     # EMA state — alpha=0.05 gives a ~20-episode effective window, smoothing
     # enough to see trends without lagging too far behind structural shifts.
     _ema_alpha = 0.05
@@ -201,13 +181,7 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
             ep_start = time.perf_counter()
             trajectory = simulator.run_episode()
 
-            # Update running reward statistics and build normalized trajectory
-            normalized_traj = []
-            for s, a, r, ns in trajectory:
-                update_reward_stats(r)
-                normalized_traj.append((s, a, normalized_reward(r), ns))
-
-            learner.learn_from_trajectory(normalized_traj)
+            learner.learn_from_trajectory(trajectory)
             policy.epsilon = max(0.05, policy.epsilon * 0.995)
 
             total_reward = sum(r for _, _, r, _ in trajectory)
@@ -222,9 +196,7 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
             )
             ema_rewards.append(_ema_reward)
 
-            # Absolute episode number (accounts for --continue offset)
-            abs_ep = start_episode + len(episode_rewards)
-            log_writer.writerow([abs_ep, f"{duration:.3f}", f"{total_reward:.1f}",
+            log_writer.writerow([ep_idx + 1, f"{duration:.3f}", f"{total_reward:.1f}",
                                   f"{moving_avg:.1f}", f"{_ema_reward:.1f}", f"{policy.epsilon:.4f}"])
             log_file.flush()
 
@@ -235,10 +207,9 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
             })
 
             # Periodic evaluation checkpoint (epsilon=0, clean signal)
-            abs_ep = ep_idx + 1
-            if abs_ep % eval_interval == 0:
+            if (ep_idx + 1) % eval_interval == 0:
                 eval_rewards = run_eval(eval_env, policy, n_episodes=eval_n, epsilon_override=0.0)
-                eval_history.append((abs_ep, float(np.mean(eval_rewards))))
+                eval_history.append((ep_idx + 1, float(np.mean(eval_rewards))))
                 np.save(eval_path, np.array(eval_history, dtype=object))
 
             # Checkpoint weights + training curve
