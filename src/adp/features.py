@@ -40,7 +40,12 @@ class PVFFeatureExtractor:
         self.knn = NearestNeighbors(n_neighbors=1, metric='manhattan', n_jobs=1)
         self.knn.fit(state_matrix)
 
+        # Bounded cache for KNN-approximated states.
+        # Stochastic service times make resource_states nearly unique per episode.
+        # Without a cap, this dict reaches 1M+ entries (~900 MB) by ep 200 and
+        # causes main-memory cache thrashing on every lookup.
         self._cache: Dict[Tuple, np.ndarray] = {}
+        self._cache_maxsize: int = 50_000
         self.seen_count = 0
         self.unseen_count = 0
 
@@ -101,8 +106,14 @@ class PVFFeatureExtractor:
             for (i, resource_state, cache_key), nearest_idx in zip(miss_indices, indices[:, 0]):
                 features = self._basis_matrix[nearest_idx]
                 result[i] = features
-                self._cache[cache_key] = features
-                self._state_to_idx[resource_state] = nearest_idx
+                # Cap the cache to prevent unbounded memory growth.
+                # Stochastic service times produce near-unique resource_states every episode;
+                # without a cap both _cache and _state_to_idx reach 1M+ entries (~2 GB) by
+                # ep 200, causing severe CPU cache thrashing on every lookup.
+                # _state_to_idx is intentionally NOT updated here: its keys are large nested
+                # tuples (~1.1 KB each) and the shortcut is never reused for stochastic states.
+                if len(self._cache) < self._cache_maxsize:
+                    self._cache[cache_key] = features
 
         return result
 
