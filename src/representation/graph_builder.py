@@ -7,7 +7,7 @@ recurrent resource states (gate occupancy, runway queue).
 Optimized for memory efficiency using sparse matrices.
 """
 from __future__ import annotations
-from typing import List, Tuple, Dict, Set
+from typing import List, Optional, Tuple, Dict, Set
 import networkx as nx
 import numpy as np
 import scipy.sparse
@@ -21,21 +21,33 @@ class StateGraph:
     """
     Constructs a weighted undirected graph from MDP trajectories.
 
-    Nodes represent unique 'resource states' (gates, queue) independent of time.
+    Nodes represent unique resource states (gates, queue) independent of time.
     Edges represent observed transitions between these states.
     Weights correspond to the frequency of transitions.
+
+    When a coarsener is provided, raw resource_states are mapped to compact
+    coarsened tuples before being added to the graph.  This dramatically
+    increases node revisitation frequency and produces a well-connected graph
+    with meaningful PVF eigenvectors.  When coarsener=None the original
+    behaviour is preserved (no regression for callers that omit it).
     """
 
-    def __init__(self):
-        """Initialize an empty undirected graph."""
+    def __init__(self, coarsener=None) -> None:
+        """
+        Args:
+            coarsener: Optional CoarsenedStateBuilder.  If supplied, every
+                       resource_state is passed through coarsener.coarsen()
+                       before being used as a graph node identity.
+        """
         self.graph = nx.Graph()
+        self._coarsener = coarsener
 
     def add_trajectory(self, trajectory: List[Tuple[AirportState, Action, float, AirportState]]):
         """
         Incorporate a new trajectory into the graph.
 
         Iterates through the transitions (s, a, r, s') and adds edges between
-        the time-independent resource states of s and s'.
+        the (optionally coarsened) resource states of s and s'.
 
         Args:
             trajectory: A list of (state, action, reward, next_state) tuples.
@@ -44,10 +56,13 @@ class StateGraph:
             # Skip terminal transitions (next_state is None for last step)
             if next_state is None:
                 continue
-            # Extract time-independent resource configuration
-            # node format: ((gate_vector), (queue_tuple))
-            u = state.resource_state
-            v = next_state.resource_state
+            if self._coarsener is not None:
+                u = self._coarsener.coarsen(state.resource_state)
+                v = self._coarsener.coarsen(next_state.resource_state)
+            else:
+                # Legacy behaviour: raw resource_state as node identity
+                u = state.resource_state
+                v = next_state.resource_state
 
             # Add edge or increment weight
             if self.graph.has_edge(u, v):

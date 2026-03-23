@@ -3,6 +3,7 @@ Experiment: Train the ADP Agent using TD(lambda) with eligibility traces.
 """
 import sys
 import csv
+import pickle
 import time
 from typing import Optional
 from pathlib import Path
@@ -66,6 +67,7 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
     data_dir = ProjectPaths.get_data_dir() / "processed"
     basis_path = data_dir / f"{scenario_prefix}_basis_functions.npy"
     mapping_path = data_dir / f"{scenario_prefix}_state_mapping.pkl"
+    coarsener_path = data_dir / f"{scenario_prefix}_coarsener.pkl"
     theta_path = data_dir / f"{scenario_prefix}_learned_theta.npy"
     rewards_path = data_dir / f"{scenario_prefix}_reward_history.npy"
     eval_path = data_dir / f"{scenario_prefix}_eval_history.npy"
@@ -76,7 +78,11 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
         return
 
     # 3. Initialize ADP Components
-    extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path))
+    coarsener = None
+    if coarsener_path.exists():
+        with open(coarsener_path, "rb") as f:
+            coarsener = pickle.load(f)
+    extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path), coarsener)
     vfa = LinearVFA(num_features=extractor.num_features)
 
     # ── Learner selection ────────────────────────────────────────────────────

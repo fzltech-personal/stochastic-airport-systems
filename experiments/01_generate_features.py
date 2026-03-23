@@ -24,6 +24,7 @@ from src.mdp.environment import AirportEnvironment
 from src.adp.policies import RandomPolicy
 from src.simulation.simulator import Simulator
 from src.representation.graph_builder import StateGraph
+from src.representation.coarsening import CoarsenedStateBuilder
 from src.representation.spectral import PVFCreator
 
 
@@ -66,7 +67,8 @@ def main(scenario_filename: str, force_rebuild: bool = False):
     # 2. Setup Environment
     env = AirportEnvironment(scenario)
     simulator = Simulator(env, RandomPolicy())
-    graph_builder = StateGraph()
+    coarsener = CoarsenedStateBuilder(scenario)
+    graph_builder = StateGraph(coarsener=coarsener)
 
     # 3. Collect Trajectories
     num_episodes = 100
@@ -89,6 +91,11 @@ def main(scenario_filename: str, force_rebuild: bool = False):
     G_sub = G.subgraph(largest_cc).copy()
     print(f"  [Graph] Largest component size: {G_sub.number_of_nodes()} nodes.")
 
+    avg_degree = (2 * G_sub.number_of_edges()) / max(G_sub.number_of_nodes(), 1)
+    print(f"  [Graph] Avg degree (largest component): {avg_degree:.2f}")
+    if avg_degree < 3:
+        print("  [Graph] WARNING: avg_degree < 3 — coarsening may still be too fine-grained.")
+
     if G_sub.number_of_nodes() < 100:
         print("!!! ERROR: Your simulation isn't finding enough recurring states.")
         print("Your graph is just a bunch of disconnected lines. We can't do math on this.")
@@ -98,7 +105,7 @@ def main(scenario_filename: str, force_rebuild: bool = False):
     sub_adj = nx.to_scipy_sparse_array(G_sub, nodelist=sub_nodes, weight='weight', format='csr')
 
     # 5. Compute Basis Functions
-    num_features = min(20, G_sub.number_of_nodes() - 2)
+    num_features = min(50, G_sub.number_of_nodes() - 2)
     if num_features < 1:
         print("Graph too small to compute features. Exiting.")
         return
@@ -113,6 +120,9 @@ def main(scenario_filename: str, force_rebuild: bool = False):
 
     with open(data_dir / f"{scenario_prefix}_state_mapping.pkl", "wb") as f:
         pickle.dump(sub_nodes, f)
+
+    with open(data_dir / f"{scenario_prefix}_coarsener.pkl", "wb") as f:
+        pickle.dump(coarsener, f)
 
     # Optional: Save the graph itself for the visualizer
     if hasattr(nx, 'write_gpickle'):

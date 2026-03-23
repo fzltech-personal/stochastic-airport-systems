@@ -3,6 +3,7 @@ Experiment: Evaluate trained ADP Policy vs. Baselines.
 Translates MDP rewards into real-world airport metrics (Total Delay Minutes).
 """
 import sys
+import pickle
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -74,6 +75,7 @@ def main(scenario_filename: str, model_prefix: str, timestamp: str = None):
 
     basis_path = data_dir / f"{model_prefix}_basis_functions.npy"
     mapping_path = data_dir / f"{model_prefix}_state_mapping.pkl"
+    coarsener_path = data_dir / f"{model_prefix}_coarsener.pkl"
     theta_path = data_dir / f"{model_prefix}_learned_theta.npy"
 
     if not theta_path.exists():
@@ -81,7 +83,11 @@ def main(scenario_filename: str, model_prefix: str, timestamp: str = None):
         print(f"Please run 03_train_agent.py with '{scenario_filename}' first!")
         return
 
-    extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path))
+    coarsener = None
+    if coarsener_path.exists():
+        with open(coarsener_path, "rb") as f:
+            coarsener = pickle.load(f)
+    extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path), coarsener)
     vfa = LinearVFA(num_features=extractor.num_features)
 
     # Load the brain you just trained!

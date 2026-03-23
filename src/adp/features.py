@@ -14,7 +14,8 @@ class PVFFeatureExtractor:
     Uses K-Nearest Neighbors (KNN) to generalize features for unseen states.
     """
 
-    def __init__(self, basis_matrix_path: str, state_mapping_path: str) -> None:
+    def __init__(self, basis_matrix_path: str, state_mapping_path: str, coarsener=None) -> None:
+        self._coarsener = coarsener
         self._basis_matrix: np.ndarray = np.load(basis_matrix_path)
         self.num_features: int = self._basis_matrix.shape[1]
 
@@ -84,42 +85,49 @@ class PVFFeatureExtractor:
             if resource_state is None:
                 continue
 
+            # Coarsen the raw resource_state to match the graph node identities.
+            # When a coarsener is present, many raw states share a single coarsened
+            # key, so exact hits are far more frequent.  Without a coarsener the
+            # raw resource_state is used directly (legacy behaviour).
+            if self._coarsener is not None:
+                key = self._coarsener.coarsen(resource_state)
+                flat = self._flatten_state(key)
+            else:
+                flat = self._flatten_state(resource_state)
+                key = tuple(np.round(flat, decimals=4))
+
             # 1. Exact graph node hit (O(1))
-            idx = self._state_to_idx.get(resource_state)
+            idx = self._state_to_idx.get(key)
             if idx is not None:
                 self.seen_count += 1
                 result[i] = self._basis_matrix[idx]
                 continue
 
-            # 2. Flatten and check secondary cache
-            flat = self._flatten_state(resource_state)
-            cache_key = tuple(np.round(flat, decimals=4))
-            cached = self._cache.get(cache_key)
+            # 2. Secondary LRU cache hit
+            cached = self._cache.get(key)
             if cached is not None:
                 self.seen_count += 1
-                self._cache.move_to_end(cache_key)   # mark as recently used
+                self._cache.move_to_end(key)   # mark as recently used
                 result[i] = cached
                 continue
 
-            miss_indices.append((i, resource_state, cache_key))
+            miss_indices.append((i, key))
             miss_flat.append(flat)
 
         # Single batch KNN call for all misses
         if miss_flat:
             self.unseen_count += len(miss_flat)
             _, indices = self.knn.kneighbors(np.array(miss_flat))
-            for (i, resource_state, cache_key), nearest_idx in zip(miss_indices, indices[:, 0]):
+            for (i, key), nearest_idx in zip(miss_indices, indices[:, 0]):
                 features = self._basis_matrix[nearest_idx]
                 result[i] = features
                 # LRU eviction: discard the least-recently-used entry before inserting
                 # a new one so the cache stays bounded at _cache_maxsize entries.
-                # This keeps the states the current (decaying-epsilon) policy visits,
+                # This keeps states the current (decaying-epsilon) policy visits,
                 # displacing old high-epsilon exploratory states that are never reused.
-                # _state_to_idx is intentionally NOT updated here: its keys are large
-                # nested tuples (~1.1 KB each) and are never reused for stochastic states.
                 if len(self._cache) >= self._cache_maxsize:
                     self._cache.popitem(last=False)   # evict LRU entry
-                self._cache[cache_key] = features
+                self._cache[key] = features
 
         return result
 
