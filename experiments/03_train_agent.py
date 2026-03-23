@@ -21,7 +21,7 @@ from src.adp.policies import RandomPolicy, ADPPolicy
 from src.simulation.simulator import Simulator
 from src.adp.features import PVFFeatureExtractor
 from src.adp.value_function import LinearVFA
-from src.adp.agent import TDLambdaLearner
+from src.adp.agent import TDLambdaLearner, LSTDLearner
 
 
 def run_eval(env, policy, n_episodes: int = 10, epsilon_override: float = 0.0) -> list:
@@ -77,7 +77,22 @@ def main(scenario_filename: str, continue_training: bool = False):
     # 3. Initialize ADP Components
     extractor = PVFFeatureExtractor(str(basis_path), str(mapping_path))
     vfa = LinearVFA(num_features=extractor.num_features)
-    learner = TDLambdaLearner(vfa=vfa, extractor=extractor, gamma=0.99, alpha=0.001, lambda_=0.9)
+
+    # ── Learner selection ────────────────────────────────────────────────────
+    # Switch by changing LEARNER_TYPE. All learners share the BaseLearner
+    # interface (learn_from_trajectory), so nothing else in this script changes.
+    #
+    #   "td_lambda"  — semi-gradient TD(λ), needs careful alpha tuning
+    #   "lstd"       — LSTD(λ), solves exactly, no alpha needed
+    LEARNER_TYPE = "lstd"
+
+    if LEARNER_TYPE == "td_lambda":
+        learner = TDLambdaLearner(vfa=vfa, extractor=extractor, gamma=0.99, alpha=0.001, lambda_=0.9)
+    elif LEARNER_TYPE == "lstd":
+        learner = LSTDLearner(vfa=vfa, extractor=extractor, gamma=0.99, lambda_=0.0, reg=1e-4)
+    else:
+        raise ValueError(f"Unknown LEARNER_TYPE: {LEARNER_TYPE!r}")
+
     policy = ADPPolicy(vfa=vfa, extractor=extractor, epsilon=0.5, gamma=0.99)
 
     # 4. Checkpointing Logic
@@ -153,7 +168,7 @@ def main(scenario_filename: str, continue_training: bool = False):
     eval_n = 10          # episodes per evaluation checkpoint
 
     print(f"Training ADP Agent on '{scenario_prefix}' from episode {start_episode} to {num_episodes}...")
-    print(f"  lambda=0.9, alpha=0.001, gamma=0.99, eval every {eval_interval} episodes")
+    print(f"  learner={LEARNER_TYPE}, gamma=0.99, eval every {eval_interval} episodes")
     pbar = tqdm(range(start_episode, num_episodes), initial=start_episode, total=num_episodes)
 
     try:
