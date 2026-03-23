@@ -176,17 +176,26 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
     print(f"  learner={LEARNER_TYPE}, gamma=0.99, eval every {eval_interval} episodes")
     pbar = tqdm(range(start_episode, num_episodes), initial=start_episode, total=num_episodes)
 
+    # Episodes at which to print the fine-grained timing breakdown.
+    # Remove this set (and the _diag_* variables below) once the root cause is confirmed.
+    _DIAG_EPISODES = {1, 10, 50, 100, 200}
+
     try:
         for ep_idx in pbar:
-            ep_start = time.perf_counter()
-            trajectory = simulator.run_episode()
+            _t0 = time.perf_counter()
 
+            # ── (a) Simulation ───────────────────────────────────────────────
+            trajectory = simulator.run_episode()
+            _t1 = time.perf_counter()
+
+            # ── (b) Learning update ──────────────────────────────────────────
             learner.learn_from_trajectory(trajectory)
+            _t2 = time.perf_counter()
+
             policy.epsilon = max(0.05, policy.epsilon * 0.995)
 
             total_reward = sum(r for _, _, r, _ in trajectory)
             episode_rewards.append(total_reward)
-            duration = time.perf_counter() - ep_start
 
             window_rewards = episode_rewards[-10:]
             moving_avg = sum(window_rewards) / len(window_rewards)
@@ -196,25 +205,43 @@ def main(scenario_filename: str, continue_training: bool = False, extra_epochs: 
             )
             ema_rewards.append(_ema_reward)
 
-            log_writer.writerow([ep_idx + 1, f"{duration:.3f}", f"{total_reward:.1f}",
+            log_writer.writerow([ep_idx + 1, f"{(time.perf_counter()-_t0):.3f}", f"{total_reward:.1f}",
                                   f"{moving_avg:.1f}", f"{_ema_reward:.1f}", f"{policy.epsilon:.4f}"])
             log_file.flush()
+
+            # ── (c) Checkpoint saves ─────────────────────────────────────────
+            _t3 = time.perf_counter()
+            np.save(theta_path, vfa.theta)
+            np.save(rewards_path, np.array(episode_rewards))
+            _t4 = time.perf_counter()
+
+            ep_num = ep_idx + 1  # absolute episode number
+            _t_total = _t4 - _t0
+            _t_other = _t_total - (_t1 - _t0) - (_t2 - _t1) - (_t4 - _t3)
+
+            if ep_num in _DIAG_EPISODES:
+                print(
+                    f"[ep {ep_num:>4}]  "
+                    f"sim={_t1-_t0:.3f}s  "
+                    f"learn={_t2-_t1:.3f}s  "
+                    f"save={_t4-_t3:.3f}s  "
+                    f"other={_t_other:.3f}s  "
+                    f"total={_t_total:.3f}s  "
+                    f"| cache={len(extractor._cache)}  "
+                    f"state_idx={len(extractor._state_to_idx)}"
+                )
 
             pbar.set_postfix({
                 "Reward": f"{total_reward:.0f}",
                 "Eps": f"{policy.epsilon:.3f}",
-                "s/ep": f"{duration:.1f}",
+                "s/ep": f"{_t_total:.1f}",
             })
 
             # Periodic evaluation checkpoint (epsilon=0, clean signal)
-            if (ep_idx + 1) % eval_interval == 0:
+            if ep_num % eval_interval == 0:
                 eval_rewards = run_eval(eval_env, policy, n_episodes=eval_n, epsilon_override=0.0)
-                eval_history.append((ep_idx + 1, float(np.mean(eval_rewards))))
+                eval_history.append((ep_num, float(np.mean(eval_rewards))))
                 np.save(eval_path, np.array(eval_history, dtype=object))
-
-            # Checkpoint weights + training curve
-            np.save(theta_path, vfa.theta)
-            np.save(rewards_path, np.array(episode_rewards))
 
     except KeyboardInterrupt:
         print("\nTraining interrupted. Saving and plotting...")
