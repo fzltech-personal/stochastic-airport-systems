@@ -50,9 +50,20 @@ class CoarsenedStateBuilder:
             groups[col].append(gate_idx)
 
         self._gate_groups: List[List[int]] = list(groups.values())
+        self._group_sizes: List[int] = [len(g) for g in self._gate_groups]
         n_groups = len(self._gate_groups)
-        group_sizes = [len(g) for g in self._gate_groups]
-        print(f"  [Coarsener] Derived {n_groups} gate groups: {group_sizes}")
+
+        print(f"  [Coarsener] Derived {n_groups} gate groups (free-count bins at 0%, 25%, 75%, 100%):")
+        for g_idx, (group, size) in enumerate(zip(self._gate_groups, self._group_sizes)):
+            b1 = max(1, int(0.25 * size))         # bin 1 upper bound (few free)
+            b2_lo = b1 + 1                         # bin 2 lower bound
+            b2_hi = int(0.75 * size)               # bin 2 upper bound
+            b3_lo = b2_hi + 1                      # bin 3 lower bound
+            b3_hi = size - 1                       # bin 3 upper bound
+            print(
+                f"    Group {g_idx} ({size} gates): "
+                f"bins at free=[0 | 1-{b1} | {b2_lo}-{b2_hi} | {b3_lo}-{b3_hi} | {size}]"
+            )
 
         # ── Derive queue bin boundaries from Q_max ────────────────────────────
         # Bin boundaries: [0, 1, 2, 3, Q_max//4, Q_max//2, Q_max]
@@ -60,6 +71,27 @@ class CoarsenedStateBuilder:
         q_max: int = scenario.rewards.Q_max
         raw_bounds = [0, 1, 2, 3, q_max // 4, q_max // 2, q_max]
         self._boundaries: List[int] = sorted(set(raw_bounds))
+
+    def _bin_free_count(self, free: int, group_size: int) -> int:
+        """
+        Map an exact free-gate count to one of 5 capacity-pressure bins.
+
+        Bin 0 — none free  (fully occupied)
+        Bin 1 — few free   (0% < fraction <= 25%)
+        Bin 2 — some free  (25% < fraction <= 75%)
+        Bin 3 — mostly free (75% < fraction < 100%)
+        Bin 4 — all free   (completely empty)
+        """
+        if free == 0:
+            return 0
+        if free == group_size:
+            return 4
+        frac = free / group_size
+        if frac <= 0.25:
+            return 1
+        if frac <= 0.75:
+            return 2
+        return 3
 
     def coarsen(self, resource_state: Tuple) -> Tuple:
         """
@@ -70,15 +102,19 @@ class CoarsenedStateBuilder:
                             AirportState.resource_state.
 
         Returns:
-            A flat tuple of ints: free counts per gate group concatenated with
-            binned queue counts per aircraft type.
+            A flat tuple of ints: binned free-gate counts per gate group
+            (values in {0,1,2,3,4}) concatenated with binned queue counts
+            per aircraft type.
         """
         gates_tuple, queue_composition = resource_state
 
-        # Count free gates (remaining service time == 0) per group
+        # Bin the free-gate count per group into 5 capacity-pressure levels
         free_counts = tuple(
-            sum(1 for i in group if gates_tuple[i] == 0)
-            for group in self._gate_groups
+            self._bin_free_count(
+                sum(1 for i in group if gates_tuple[i] == 0),
+                self._group_sizes[g_idx]
+            )
+            for g_idx, group in enumerate(self._gate_groups)
         )
 
         # Map each aircraft-type count to a coarse bin index
