@@ -7,41 +7,41 @@ aircraft_types:
   regional:
     name: "regional"
     base_service_mean: 35
-    base_service_std: 5
+    base_service_std: 1
     description: "Cityhopper jets (Embraer E-jets)"
     typical_routes: "Short-haul European"
 
   narrow-body:
     name: "narrow-body"
     base_service_mean: 50
-    base_service_std: 8
+    base_service_std: 1
     description: "Single-aisle aircraft (B737, A320 family)"
     typical_routes: "European and short international"
 
   wide-body:
     name: "wide-body"
     base_service_mean: 100
-    base_service_std: 15
+    base_service_std: 1
     description: "Twin-aisle aircraft (A330, B777, B787)"
     typical_routes: "Long-haul intercontinental"
 
   super-heavy:
     name: "super-heavy"
     base_service_mean: 135
-    base_service_std: 20
+    base_service_std: 1
     description: "Ultra-large aircraft (A380)"
     typical_routes: "High-capacity intercontinental"
 
   cargo-small:
     name: "cargo-small"
     base_service_mean: 70
-    base_service_std: 10
+    base_service_std: 1
     description: "Cargo conversion of narrow-body"
 
   cargo-heavy:
     name: "cargo-heavy"
     base_service_mean: 180
-    base_service_std: 25
+    base_service_std: 1
     description: "Dedicated heavy freighters (B747F)"
 
 # ---------------------------------------------------------

@@ -25,7 +25,7 @@ noise_models:
   service:
     distribution: "normal"
     params:
-      std: 10  # The mean is automatically the aircraft's base_service
+      std: 1
 
 rewards: "configs/components/reward_structures.yaml"
 reward_profile: "high_load_rewards"

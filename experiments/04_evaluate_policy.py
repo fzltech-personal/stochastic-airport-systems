@@ -103,7 +103,7 @@ def main(scenario_filename: str, model_prefix: str, timestamp: str = None):
     }
 
     results = []
-    num_test_episodes = 10
+    num_test_episodes = 30
 
     # Total scheduled arrivals
     total_scheduled = sum(1 for f in env.scenario.schedule.get_flights() if f.direction == "arrival")

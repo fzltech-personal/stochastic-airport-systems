@@ -147,5 +147,4 @@ class ADPPolicy:
             if action_value > best_value:
                 best_value = action_value
                 best_action = action
-
         return best_action
